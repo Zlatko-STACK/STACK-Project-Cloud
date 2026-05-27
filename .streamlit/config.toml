@@ -3,5 +3,5 @@ headless = true
 enableCORS = false
 enableXsrfProtection = false
 enableWebsocketCompression = true
-enableStaticServing = true
+enableStaticServing = false
 address = "0.0.0.0"
