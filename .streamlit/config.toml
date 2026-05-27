@@ -1,0 +1,7 @@
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = false
+enableWebsocketCompression = true
+enableStaticServing = true
+address = "0.0.0.0"
