@@ -462,11 +462,25 @@ def build_gantt_chart(df: pd.DataFrame, outlines: bool = True):
         x=alt.X("today:T")
     )
 
-    return alt.layer(base, text, today_line).properties(height=height)
+    # Add separator lines between different projects
+    gantt_sorted = gantt.sort_values("Start date", ascending=False).reset_index(drop=True)
+    gantt_sorted["next_project"] = gantt_sorted["Project name"].shift(-1)
+    gantt_sorted["project_boundary"] = gantt_sorted["Project name"] != gantt_sorted["next_project"]
+    separators = gantt_sorted[gantt_sorted["project_boundary"] & gantt_sorted["next_project"].notna()].copy()
+    
+    grid = alt.Chart(separators).mark_rule(color="darkgray", opacity=0.6, size=2).encode(
+        y=alt.Y("Project phase:N", sort=alt.SortField("Start date", order="descending"))
+    ) if not separators.empty else None
+
+    layers = [base, text, today_line]
+    if grid is not None:
+        layers.insert(1, grid)
+    
+    return alt.layer(*layers).properties(height=height)
 
 
 st.set_page_config(page_title=PAGE_TITLE, layout="wide")
-st.title("🏢 Commercial Fitout Project Tracker")
+st.title("🏢 STACK Project Cloud")
 st.markdown(
     "Use this workspace tracker to add new fitout projects, update stages, monitor risk status, and track progress from concept through to code compliance."
 )
@@ -600,7 +614,7 @@ if page == "Project Tracker":
             )
 
         st.markdown("---")
-        st.subheader("Project Gantt chart")
+        st.subheader("Project Overlap")
         outline_toggle = st.checkbox("Outline phase bars", value=True)
         gantt_chart = build_gantt_chart(filtered_projects, outlines=outline_toggle)
         if gantt_chart is not None:
@@ -609,79 +623,6 @@ if page == "Project Tracker":
             st.info("Add project start and target completion dates to see the Gantt chart.")
 
         st.markdown("---")
-        st.subheader("Add a new project")
-        with st.form("new_project_form"):
-            new_project_id = st.text_input(
-                "Project ID",
-                help="Enter a unique project identifier. Leave blank to auto-generate.",
-                max_chars=100,
-            )
-            new_name = st.text_input("Project name", max_chars=100)
-            new_client = st.text_input("Client")
-            new_location = st.text_input("Location")
-            new_manager = st.text_input("Project manager")
-            col1, col2 = st.columns([1, 1])
-            with col1:
-                new_start = st.date_input("Start date")
-            with col2:
-                new_target = st.date_input("Target completion")
-            new_stage = st.selectbox("Stage", STAGES, index=0)
-            new_status = st.selectbox("Status", STATUSES, index=0)
-            new_budget = st.number_input("Budget", min_value=0.0, step=100.0, format="%f")
-            new_weekly_hours = st.number_input(
-                "Weekly hours allocated",
-                min_value=0.0,
-                step=1.0,
-                value=0.0,
-                help="Enter the total weekly hours allocated to this project.",
-            )
-            new_member_hours = st.text_area(
-                "Member hours allocation",
-                help="Enter one member and hours per line, e.g. Alice: 12\nBob: 8. Leave empty to split total weekly hours evenly.",
-                height=120,
-            )
-            new_phase_schedule = st.text_area(
-                "Phase schedule",
-                help="Enter one phase per line, e.g. Concept: 2026-05-01 to 2026-05-28",
-                height=120,
-            )
-            new_milestones = st.text_area(
-                "Milestones",
-                help="Enter one milestone per line. Add ✓ or [x] to mark a milestone complete.",
-                height=140,
-            )
-            new_team_members = st.multiselect("Team members", st.session_state.team_members)
-            new_compliance = st.multiselect("Compliance checklist", COMPLIANCE_TASKS)
-            new_notes = st.text_area("Notes", height=120)
-            submit_new = st.form_submit_button("Save project")
-
-            if submit_new:
-                if not new_name:
-                    st.warning("Please enter a project name before saving.")
-                else:
-                    project_data = {
-                        "Project ID": new_project_id,
-                        "Project name": new_name,
-                        "Client": new_client,
-                        "Location": new_location,
-                        "Project manager": new_manager,
-                        "Start date": new_start.strftime("%Y-%m-%d"),
-                        "Target completion": new_target.strftime("%Y-%m-%d"),
-                        "Stage": new_stage,
-                        "Status": new_status,
-                        "Budget": str(new_budget),
-                        "Weekly hours allocated": str(new_weekly_hours),
-                        "Member hours allocation": normalize_member_hours(parse_member_hours(new_member_hours)),
-                        "Phase schedule": normalize_phase_schedule(new_phase_schedule),
-                        "Milestones": normalize_milestones(new_milestones),
-                        "Team members": normalize_team_members(new_team_members),
-                        "Compliance checklist": normalize_checklist(new_compliance),
-                        "Notes": new_notes,
-                    }
-                    st.session_state.projects = add_or_update_project(project_data, st.session_state.projects)
-                    save_projects(st.session_state.projects)
-                    st.session_state.message = f"Saved project '{new_name}'."
-                    st.experimental_rerun()
 
     with right:
         st.subheader("Update an existing project")
@@ -811,46 +752,124 @@ if page == "Project Tracker":
                     st.experimental_rerun()
 
     st.markdown("---")
-    st.subheader("Team member management")
-    with st.form("team_member_form"):
-        new_member = st.text_input("Add team member")
-        add_member = st.form_submit_button("Add team member")
-        if add_member:
-            member_name = new_member.strip()
-            if not member_name:
-                st.warning("Please enter a team member name.")
-            elif member_name in st.session_state.team_members:
-                st.warning("This team member already exists.")
+    col_add, col_team = st.columns(2)
+    
+    with col_add:
+        with st.expander("Add a new project"):
+            with st.form("new_project_form"):
+                new_project_id = st.text_input(
+                    "Project ID",
+                    help="Enter a unique project identifier. Leave blank to auto-generate.",
+                    max_chars=100,
+                )
+                new_name = st.text_input("Project name", max_chars=100)
+                new_client = st.text_input("Client")
+                new_location = st.text_input("Location")
+                new_manager = st.text_input("Project manager")
+                col1, col2 = st.columns([1, 1])
+                with col1:
+                    new_start = st.date_input("Start date")
+                with col2:
+                    new_target = st.date_input("Target completion")
+                new_stage = st.selectbox("Stage", STAGES, index=0)
+                new_status = st.selectbox("Status", STATUSES, index=0)
+                new_budget = st.number_input("Budget", min_value=0.0, step=100.0, format="%f")
+                new_weekly_hours = st.number_input(
+                    "Weekly hours allocated",
+                    min_value=0.0,
+                    step=1.0,
+                    value=0.0,
+                    help="Enter the total weekly hours allocated to this project.",
+                )
+                new_member_hours = st.text_area(
+                    "Member hours allocation",
+                    help="Enter one member and hours per line, e.g. Alice: 12\nBob: 8. Leave empty to split total weekly hours evenly.",
+                    height=120,
+                )
+                new_phase_schedule = st.text_area(
+                    "Phase schedule",
+                    help="Enter one phase per line, e.g. Concept: 2026-05-01 to 2026-05-28",
+                    height=120,
+                )
+                new_milestones = st.text_area(
+                    "Milestones",
+                    help="Enter one milestone per line. Add ✓ or [x] to mark a milestone complete.",
+                    height=140,
+                )
+                new_team_members = st.multiselect("Team members", st.session_state.team_members)
+                new_compliance = st.multiselect("Compliance checklist", COMPLIANCE_TASKS)
+                new_notes = st.text_area("Notes", height=120)
+                submit_new = st.form_submit_button("Save project", use_container_width=True)
+
+                if submit_new:
+                    if not new_name:
+                        st.warning("Please enter a project name before saving.")
+                    else:
+                        project_data = {
+                            "Project ID": new_project_id,
+                            "Project name": new_name,
+                            "Client": new_client,
+                            "Location": new_location,
+                            "Project manager": new_manager,
+                            "Start date": new_start.strftime("%Y-%m-%d"),
+                            "Target completion": new_target.strftime("%Y-%m-%d"),
+                            "Stage": new_stage,
+                            "Status": new_status,
+                            "Budget": str(new_budget),
+                            "Weekly hours allocated": str(new_weekly_hours),
+                            "Member hours allocation": normalize_member_hours(parse_member_hours(new_member_hours)),
+                            "Phase schedule": normalize_phase_schedule(new_phase_schedule),
+                            "Milestones": normalize_milestones(new_milestones),
+                            "Team members": normalize_team_members(new_team_members),
+                            "Compliance checklist": normalize_checklist(new_compliance),
+                            "Notes": new_notes,
+                        }
+                        st.session_state.projects = add_or_update_project(project_data, st.session_state.projects)
+                        save_projects(st.session_state.projects)
+                        st.session_state.message = f"Saved project '{new_name}'."
+                        st.experimental_rerun()
+
+    with col_team:
+        with st.expander("Team member management"):
+            with st.form("team_member_form"):
+                new_member = st.text_input("Add team member")
+                add_member = st.form_submit_button("Add team member", use_container_width=True)
+                if add_member:
+                    member_name = new_member.strip()
+                    if not member_name:
+                        st.warning("Please enter a team member name.")
+                    elif member_name in st.session_state.team_members:
+                        st.warning("This team member already exists.")
+                    else:
+                        st.session_state.team_members.append(member_name)
+                        save_team_members(st.session_state.team_members)
+                        st.success(f"Added team member '{member_name}'.")
+                        st.experimental_rerun()
+
+            st.write("**Defined team members**")
+            if st.session_state.team_members:
+                st.write(", ".join(st.session_state.team_members))
             else:
-                st.session_state.team_members.append(member_name)
-                save_team_members(st.session_state.team_members)
-                st.success(f"Added team member '{member_name}'.")
-                st.experimental_rerun()
+                st.info("No team members defined yet.")
 
-    st.write("**Defined team members**")
-    if st.session_state.team_members:
-        st.write(", ".join(st.session_state.team_members))
-    else:
-        st.info("No team members defined yet.")
-
-    weekly_capacity = st.number_input(
-        "Weekly capacity per team member",
-        min_value=1.0,
-        value=40.0,
-        step=1.0,
-        help="Weekly working hours available for each staff member.",
-    )
-    workload_df = compute_team_member_hours(st.session_state.projects, st.session_state.team_members, weekly_capacity)
-    if not workload_df.empty:
-        styled = workload_df.style.apply(style_workload_table, axis=1)
-        st.dataframe(styled, use_container_width=True)
-        overloaded = workload_df[workload_df["Available hours"] < 10]
-        if not overloaded.empty:
-            st.warning(
-                "Swamped team members: " + ", ".join(overloaded["Team member"].tolist())
+            weekly_capacity = st.number_input(
+                "Weekly capacity per team member",
+                min_value=1.0,
+                value=40.0,
+                step=1.0,
+                help="Weekly working hours available for each staff member.",
             )
-    else:
-        st.info("No team members or project hours assigned yet.")
+            workload_df = compute_team_member_hours(st.session_state.projects, st.session_state.team_members, weekly_capacity)
+            if not workload_df.empty:
+                styled = workload_df.style.apply(style_workload_table, axis=1)
+                st.dataframe(styled, use_container_width=True)
+                overloaded = workload_df[workload_df["Available hours"] < 10]
+                if not overloaded.empty:
+                    st.warning(
+                        "Swamped team members: " + ", ".join(overloaded["Team member"].tolist())
+                    )
+            else:
+                st.info("No team members or project hours assigned yet.")
 
 else:
     selected_project = st.session_state.get("task_project_select", "All projects")
