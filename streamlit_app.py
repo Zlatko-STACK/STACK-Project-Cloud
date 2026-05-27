@@ -414,8 +414,8 @@ def build_gantt_chart(df: pd.DataFrame, outlines: bool = True):
     gantt["mid"] = gantt["Start date"] + (gantt["Target completion"] - gantt["Start date"]) / 2
 
     unique_rows = gantt["Project phase"].nunique()
-    per_row = 24
-    height = max(180, min(1200, per_row * unique_rows))
+    per_row = 30
+    height = max(260, min(1200, per_row * unique_rows))
 
     opacity = 0.75 if outlines else 1.0
     stroke = "black" if outlines else None
@@ -458,8 +458,20 @@ def build_gantt_chart(df: pd.DataFrame, outlines: bool = True):
         )
     )
 
-    today_line = alt.Chart(pd.DataFrame({"today": [pd.Timestamp.now().normalize()]})).mark_rule(color="red", strokeDash=[4, 4], size=2).encode(
+    today_df = pd.DataFrame({"today": [pd.Timestamp.now().normalize()]})
+    today_line = alt.Chart(today_df).mark_rule(color="black", size=3).encode(
         x=alt.X("today:T")
+    )
+    today_label = alt.Chart(today_df).mark_text(
+        fontSize=10,
+        color="black",
+        baseline="bottom",
+        align="center",
+        dy=-4,
+    ).encode(
+        x=alt.X("today:T"),
+        y=alt.value(10),
+        text=alt.Text("today:T", format="%Y-%m-%d"),
     )
 
     # Add separator lines between different projects
@@ -472,7 +484,7 @@ def build_gantt_chart(df: pd.DataFrame, outlines: bool = True):
         y=alt.Y("Project phase:N", sort=alt.SortField("Start date", order="descending"))
     ) if not separators.empty else None
 
-    layers = [base, text, today_line]
+    layers = [base, text, today_line, today_label]
     if grid is not None:
         layers.insert(1, grid)
     
@@ -501,64 +513,13 @@ with st.sidebar:
     page = st.selectbox("Page", ["Project Tracker", "Task Tracker"])
     if page == "Project Tracker":
         st.header("Project filters")
-        selected_stages = st.multiselect("Stage", STAGES, default=STAGES)
-        selected_status = st.multiselect("Status", STATUSES, default=STATUSES)
+        stage_filter_options = ["All"] + STAGES
+        selected_stages = st.multiselect("Stage", stage_filter_options, default=["All"], key="project_stage_filter")
+        selected_stages = [stage for stage in selected_stages if stage != "All"]
+        status_filter_options = ["All"] + STATUSES
+        selected_status = st.multiselect("Status", status_filter_options, default=["All"], key="project_status_filter")
+        selected_status = [status for status in selected_status if status != "All"]
         search_query = st.text_input("Search by project, client, or location")
-        st.markdown("---")
-        st.subheader("Quick status view")
-        status_quick = st.selectbox("Show projects by status", ["All"] + STATUSES, index=0)
-        if status_quick == "All":
-            projects_by_status = st.session_state.projects["Project name"].dropna().unique().tolist()
-        else:
-            projects_by_status = (
-                st.session_state.projects[st.session_state.projects["Status"] == status_quick]["Project name"]
-                .dropna()
-                .unique()
-                .tolist()
-            )
-        selected_quick = st.selectbox("Projects in this status", [""] + projects_by_status, key="sidebar_project_select")
-        if selected_quick:
-            st.session_state.quick_selected_project = selected_quick
-            st.markdown("---")
-            st.subheader("Quick actions")
-            if st.button("Jump to edit", key=f"jump_{selected_quick}"):
-                st.session_state.quick_selected_project = selected_quick
-                st.experimental_rerun()
-            if st.button("Open notes", key=f"notes_{selected_quick}"):
-                st.session_state.show_notes_for = selected_quick
-                st.experimental_rerun()
-
-            project_row = st.session_state.projects[st.session_state.projects["Project name"] == selected_quick]
-            if not project_row.empty:
-                current_milestones = project_row.iloc[0].get("Milestones", "")
-            else:
-                current_milestones = ""
-            milestone_list = parse_milestones(current_milestones)
-            if milestone_list:
-                st.write("**Manage milestones**")
-                milestone_states = []
-                for i, m in enumerate(milestone_list):
-                    clean = m.replace("✓", "").strip()
-                    checked = (
-                        m.endswith("✓")
-                        or m.startswith("[x]")
-                        or m.startswith("[X]")
-                        or m.lower().endswith("complete")
-                    )
-                    cb = st.checkbox(clean, value=checked, key=f"milestone_{selected_quick}_{i}")
-                    milestone_states.append((clean, cb))
-                if st.button("Save milestones", key=f"save_milestones_{selected_quick}"):
-                    new_list = []
-                    for text, checked in milestone_states:
-                        if checked:
-                            new_list.append(text + " ✓")
-                        else:
-                            new_list.append(text)
-                    idx = st.session_state.projects[st.session_state.projects["Project name"] == selected_quick].index[0]
-                    st.session_state.projects.at[idx, "Milestones"] = normalize_milestones("\n".join(new_list))
-                    save_projects(st.session_state.projects)
-                    st.success("Milestones saved")
-                    st.experimental_rerun()
         st.markdown("---")
         st.write("**Project insights**")
         total_projects = len(st.session_state.projects)
@@ -612,17 +573,6 @@ if page == "Project Tracker":
                 filtered_projects_display[COLUMNS + ["Compliance progress", "Milestone progress"]].fillna(""),
                 use_container_width=True,
             )
-
-        st.markdown("---")
-        st.subheader("Project Overlap")
-        outline_toggle = st.checkbox("Outline phase bars", value=True)
-        gantt_chart = build_gantt_chart(filtered_projects, outlines=outline_toggle)
-        if gantt_chart is not None:
-            st.altair_chart(gantt_chart, use_container_width=True)
-        else:
-            st.info("Add project start and target completion dates to see the Gantt chart.")
-
-        st.markdown("---")
 
     with right:
         st.subheader("Update an existing project")
@@ -750,6 +700,15 @@ if page == "Project Tracker":
                     save_projects(st.session_state.projects)
                     st.session_state.message = f"Deleted project '{selected}'."
                     st.experimental_rerun()
+
+    st.markdown("---")
+    st.subheader("Project Overlap")
+    outline_toggle = st.checkbox("Outline phase bars", value=True)
+    gantt_chart = build_gantt_chart(filtered_projects, outlines=outline_toggle)
+    if gantt_chart is not None:
+        st.altair_chart(gantt_chart, use_container_width=True)
+    else:
+        st.info("Add project start and target completion dates to see the Gantt chart.")
 
     st.markdown("---")
     col_add, col_team = st.columns(2)
