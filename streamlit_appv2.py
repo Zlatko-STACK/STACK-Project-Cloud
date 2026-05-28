@@ -383,7 +383,7 @@ def filter_projects(df: pd.DataFrame, stage_filter, status_filter, search_text: 
     return filtered
 
 
-def build_gantt_chart(df: pd.DataFrame, outlines: bool = False):
+def build_gantt_chart(df: pd.DataFrame, outlines: bool = True):
     phase_rows = []
     for _, row in df.iterrows():
         phases = parse_phase_schedule(row.get("Phase schedule", ""))
@@ -391,7 +391,7 @@ def build_gantt_chart(df: pd.DataFrame, outlines: bool = False):
             for phase in phases:
                 phase_rows.append(
                     {
-                        "Project phase": f"  {phase['Stage']}",
+                        "Project phase": f"{row['Project name']} — {phase['Stage']}",
                         "Project name": row["Project name"],
                         "Client": row["Client"],
                         "Location": row["Location"],
@@ -436,8 +436,8 @@ def build_gantt_chart(df: pd.DataFrame, outlines: bool = False):
     gantt["mid"] = gantt["Start date"] + (gantt["Target completion"] - gantt["Start date"]) / 2
 
     unique_rows = gantt["Project phase"].nunique()
-    per_row = 42
-    height = max(260, min(1800, per_row * unique_rows))
+    per_row = 30
+    height = max(260, min(1200, per_row * unique_rows))
 
     opacity = 0.75 if outlines else 1.0
     stroke = "black" if outlines else None
@@ -445,7 +445,7 @@ def build_gantt_chart(df: pd.DataFrame, outlines: bool = False):
 
     base = (
         alt.Chart(gantt)
-        .mark_bar(size=max(4, int(per_row * 0.55)), opacity=opacity, stroke=stroke, strokeWidth=stroke_width)
+        .mark_bar(size=max(4, int(per_row * 0.8)), opacity=opacity, stroke=stroke, strokeWidth=stroke_width)
         .encode(
             x=alt.X("Start date:T", title="Start"),
             x2=alt.X2("Target completion:T", title="Finish"),
@@ -489,10 +489,10 @@ def build_gantt_chart(df: pd.DataFrame, outlines: bool = False):
         color="black",
         baseline="bottom",
         align="center",
-        dy=-8,
+        dy=-4,
     ).encode(
         x=alt.X("today:T"),
-        y=alt.value(0),
+        y=alt.value(10),
         text=alt.Text("today:T", format="%Y-%m-%d"),
     )
 
@@ -512,135 +512,6 @@ def build_gantt_chart(df: pd.DataFrame, outlines: bool = False):
     return alt.layer(*layers).properties(height=height)
 
 
-def build_traffic_light_cards(df: pd.DataFrame):
-    today = pd.Timestamp.now().normalize()
-
-    def phase_colour(days_until):
-        if days_until is None:
-            return "#aaaaaa"  # grey
-        if days_until < 0:
-            return "#aaaaaa"  # passed
-        if days_until < 14:
-            return "#e74c3c"  # red
-        if days_until <= 30:
-            return "#f39c12"  # amber
-        return "#2ecc71"  # green
-
-    def days_label(days_until):
-        if days_until is None:
-            return "Not scheduled"
-        if days_until < 0:
-            return "Passed"
-        if days_until == 0:
-            return "Today"
-        return f"In {days_until}d"
-
-    # Build card data
-    cards = []
-    for _, row in df.iterrows():
-        phases = parse_phase_schedule(row.get("Phase schedule", ""))
-        phase_map = {p["Stage"]: p["Start date"] for p in phases}
-
-        phase_info = []
-        min_upcoming = None
-        for stage in STAGES:
-            start = phase_map.get(stage)
-            if start is not None:
-                days = (pd.Timestamp(start).normalize() - today).days
-            else:
-                days = None
-            phase_info.append({"stage": stage, "days": days})
-            if days is not None and days >= 0:
-                if min_upcoming is None or days < min_upcoming:
-                    min_upcoming = days
-
-        cards.append({
-            "Project name": row["Project name"],
-            "Client": row["Client"],
-            "Stage": row["Stage"],
-            "Status": row["Status"],
-            "phase_info": phase_info,
-            "min_upcoming": min_upcoming if min_upcoming is not None else 9999,
-        })
-
-    # Sort by most imminent upcoming phase
-    cards.sort(key=lambda c: c["min_upcoming"])
-
-    if not cards:
-        st.info("No projects to display.")
-        return
-
-    STATUS_COLOURS = {
-        "On track": "#2ecc71",
-        "At risk": "#f39c12",
-        "Delayed": "#e74c3c",
-        "Complete": "#aaaaaa",
-    }
-
-    if "expanded_card" not in st.session_state:
-        st.session_state.expanded_card = None
-
-    cols = st.columns(3)
-    for i, card in enumerate(cards):
-        proj = card["Project name"]
-        with cols[i % 3]:
-            status_col = STATUS_COLOURS.get(card["Status"], "#cccccc")
-            dots = ""
-            for p in card["phase_info"]:
-                colour = phase_colour(p["days"])
-                label = days_label(p["days"])
-                border = "2px solid #333" if p["stage"] == card["Stage"] else "2px solid transparent"
-                dots += (
-                    "<div style='display:flex;flex-direction:column;align-items:center;gap:2px;min-width:60px'>"
-                    f"<div style='width:18px;height:18px;border-radius:50%;background:{colour};border:{border}'></div>"
-                    f"<span style='font-size:9px;color:#555;text-align:center'>{p['stage'][:6]}</span>"
-                    f"<span style='font-size:9px;color:#333;font-weight:500'>{label}</span>"
-                    "</div>"
-                )
-            html = (
-                "<div style='border:1px solid #ddd;border-radius:10px;padding:14px 16px;"
-                f"margin-bottom:6px;background:#fafafa;border-left:5px solid {status_col}'>"
-                f"<div style='font-weight:700;font-size:15px;margin-bottom:2px'>{proj}</div>"
-                f"<div style='font-size:12px;color:#666;margin-bottom:8px'>{card['Client']} &nbsp;&middot;&nbsp;"
-                f"<span style='color:{status_col};font-weight:600'>{card['Status']}</span></div>"
-                f"<div style='font-size:11px;color:#888;margin-bottom:10px'>Current stage: <strong>{card['Stage']}</strong></div>"
-                "<div style='display:flex;flex-wrap:wrap;gap:8px'>" + dots + "</div></div>"
-            )
-            st.markdown(html, unsafe_allow_html=True)
-
-            # Toggle expand/collapse
-            is_expanded = st.session_state.expanded_card == proj
-            btn_label = "▲ Close" if is_expanded else "✏️ Update stage"
-            if st.button(btn_label, key=f"toggle_{proj}", use_container_width=True):
-                st.session_state.expanded_card = None if is_expanded else proj
-                st.rerun()
-
-            if is_expanded:
-                with st.form(key=f"stage_form_{proj}"):
-                    proj_idx = st.session_state.projects[st.session_state.projects["Project name"] == proj].index[0]
-                    current = st.session_state.projects.loc[proj_idx].to_dict()
-                    new_stage = st.selectbox(
-                        "Stage",
-                        STAGES,
-                        index=STAGES.index(current.get("Stage")) if current.get("Stage") in STAGES else 0,
-                        key=f"stage_select_{proj}",
-                    )
-                    new_status = st.selectbox(
-                        "Status",
-                        STATUSES,
-                        index=STATUSES.index(current.get("Status")) if current.get("Status") in STATUSES else 0,
-                        key=f"status_select_{proj}",
-                    )
-                    if st.form_submit_button("Save", use_container_width=True):
-                        st.session_state.projects.at[proj_idx, "Stage"] = new_stage
-                        st.session_state.projects.at[proj_idx, "Status"] = new_status
-                        st.session_state.projects.at[proj_idx, "Last updated"] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
-                        save_projects(st.session_state.projects)
-                        st.session_state.expanded_card = None
-                        st.session_state.message = f"Updated stage for '{proj}'."
-                        st.rerun()
-
-
 st.set_page_config(page_title=PAGE_TITLE, layout="wide")
 st.title("🏢 STACK Project Cloud")
 st.markdown(
@@ -649,22 +520,15 @@ st.markdown(
 
 if "projects" not in st.session_state:
     st.session_state.projects = load_projects()
+
 if "team_members" not in st.session_state:
     st.session_state.team_members = load_team_members()
+
 if "tasks" not in st.session_state:
     st.session_state.tasks = load_tasks()
+
 if "message" not in st.session_state:
     st.session_state.message = ""
-if "expanded_card" not in st.session_state:
-    st.session_state.expanded_card = None
-if "show_add_project" not in st.session_state:
-    st.session_state.show_add_project = False
-if "show_team_management" not in st.session_state:
-    st.session_state.show_team_management = False
-if "selected_project" not in st.session_state:
-    st.session_state.selected_project = ""
-if "selectbox_key" not in st.session_state:
-    st.session_state.selectbox_key = 0
 
 with st.sidebar:
     page = st.selectbox("Page", ["Project Tracker", "Task Tracker"])
@@ -734,18 +598,13 @@ if page == "Project Tracker":
     with right:
         st.subheader("Update an existing project")
         project_names = st.session_state.projects["Project name"].dropna().unique().tolist()
+        default_selected = st.session_state.get("quick_selected_project", "")
         options = [""] + project_names
         try:
-            default_index = options.index(st.session_state.selected_project)
+            default_index = options.index(default_selected)
         except ValueError:
             default_index = 0
-        selected = st.selectbox("Select a project", options, index=default_index, key=f"project_edit_select_{st.session_state.selectbox_key}")
-
-        # Close panel if user clears the selectbox
-        if selected != st.session_state.selected_project:
-            st.session_state.selected_project = selected
-            st.rerun()
-
+        selected = st.selectbox("Select a project", options, index=default_index)
         if selected:
             project_index = st.session_state.projects[st.session_state.projects["Project name"] == selected].index[0]
             current = st.session_state.projects.loc[project_index].to_dict()
@@ -833,10 +692,6 @@ if page == "Project Tracker":
                 st.write(f"Milestone completion: {milestone_progress(current.get('Milestones', ''))}%")
                 update_button = st.form_submit_button("Update project")
                 delete_button = st.form_submit_button("Delete project")
-                cancel_button = st.form_submit_button("✕ Cancel")
-                if cancel_button:
-                    st.session_state.selected_project = ""
-                    st.rerun()
                 if update_button:
                     updated_data = {
                         "Project ID": current.get("Project ID", ""),
@@ -868,19 +723,18 @@ if page == "Project Tracker":
                     st.rerun()  # FIX 3
 
     st.markdown("---")
-    st.subheader("Phase Traffic Lights")
-    st.caption("🔴 < 14 days  |  🟡 14–30 days  |  🟢 30+ days  |  ⚫ Not scheduled / passed")
-    build_traffic_light_cards(filtered_projects)
+    st.subheader("Project Overlap")
+    gantt_chart = build_gantt_chart(filtered_projects, outlines=False)
+    if gantt_chart is not None:
+        st.altair_chart(gantt_chart, use_container_width=True)
+    else:
+        st.info("Add project start and target completion dates to see the Gantt chart.")
 
     st.markdown("---")
     col_add, col_team = st.columns(2)
 
     with col_add:
-        add_label = "▲ Close" if st.session_state.show_add_project else "＋ Add a new project"
-        if st.button(add_label, key="toggle_add_project", use_container_width=True):
-            st.session_state.show_add_project = not st.session_state.show_add_project
-            st.rerun()
-        if st.session_state.show_add_project:
+        with st.expander("Add a new project"):
             with st.form("new_project_form"):
                 new_project_id = st.text_input(
                     "Project ID",
@@ -952,15 +806,10 @@ if page == "Project Tracker":
                         st.session_state.projects = add_or_update_project(project_data, st.session_state.projects)
                         save_projects(st.session_state.projects)
                         st.session_state.message = f"Saved project '{new_name}'."
-                        st.session_state.show_add_project = False
                         st.rerun()  # FIX 3
 
     with col_team:
-        team_label = "▲ Close" if st.session_state.show_team_management else "👥 Team member management"
-        if st.button(team_label, key="toggle_team_management", use_container_width=True):
-            st.session_state.show_team_management = not st.session_state.show_team_management
-            st.rerun()
-        if st.session_state.show_team_management:
+        with st.expander("Team member management"):
             with st.form("team_member_form"):
                 new_member = st.text_input("Add team member")
                 add_member = st.form_submit_button("Add team member", use_container_width=True)
@@ -974,7 +823,6 @@ if page == "Project Tracker":
                         st.session_state.team_members.append(member_name)
                         save_team_members(st.session_state.team_members)
                         st.success(f"Added team member '{member_name}'.")
-                        st.session_state.show_team_management = True
                         st.rerun()  # FIX 3
 
             st.write("**Defined team members**")
