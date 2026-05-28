@@ -1056,6 +1056,42 @@ elif page == "Fee Estimator":
 
 elif page == "Clients":
     st.subheader("Client Database")
+
+    # ── Status pie chart ──
+    if not st.session_state.companies.empty:
+        status_counts = st.session_state.companies["Status"].value_counts().reset_index()
+        status_counts.columns = ["Status", "Count"]
+        status_counts["Colour"] = status_counts["Status"].map(CLIENT_STATUS_COLOURS)
+
+        import altair as alt
+        pie = alt.Chart(status_counts).mark_arc(innerRadius=50).encode(
+            theta=alt.Theta("Count:Q"),
+            color=alt.Color("Status:N", scale=alt.Scale(
+                domain=list(CLIENT_STATUS_COLOURS.keys()),
+                range=list(CLIENT_STATUS_COLOURS.values())
+            ), legend=alt.Legend(title="Status")),
+            tooltip=[alt.Tooltip("Status:N"), alt.Tooltip("Count:Q")],
+        ).properties(width=260, height=260, title="Clients by status")
+
+        text = alt.Chart(status_counts).mark_text(radius=130, fontSize=12, fontWeight="bold").encode(
+            theta=alt.Theta("Count:Q", stack=True),
+            text=alt.Text("Count:Q"),
+            color=alt.value("#333"),
+        )
+
+        pc1, pc2, pc3 = st.columns([1, 1, 2])
+        with pc1:
+            st.altair_chart(pie + text, use_container_width=False)
+        with pc2:
+            st.markdown("**Summary**")
+            for s in CLIENT_STATUSES:
+                cnt = status_counts[status_counts["Status"] == s]["Count"].sum() if s in status_counts["Status"].values else 0
+                colour = CLIENT_STATUS_COLOURS[s]
+                st.markdown(f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:6px'>"
+                            f"<div style='width:14px;height:14px;border-radius:50%;background:{colour}'></div>"
+                            f"<span style='font-size:13px'><strong>{s}</strong>: {cnt}</span></div>",
+                            unsafe_allow_html=True)
+        st.markdown("---")
     tab_companies, tab_contacts = st.tabs(["🏢 Companies", "👤 Contacts"])
 
     # ── COMPANIES ──
