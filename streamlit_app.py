@@ -750,41 +750,80 @@ h4, h5, h6 {
     display: inline-block;
 }
 
-/* Sidebar — charcoal/black, the STACK signature */
+/* Sidebar — charcoal/black with STACK yellow accents, fixed in place */
 [data-testid="stSidebar"] {
     background-color: #1a1a1a;
+    position: sticky !important;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
 }
 [data-testid="stSidebar"] * {
     color: #f0f0f0 !important;
 }
 [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
-    color: #ffffff !important;
-    border-bottom: none;
+    color: #F2C94C !important;
+    border-bottom: 2px solid #F2C94C;
+    padding-bottom: 4px;
+    font-weight: 700 !important;
 }
 [data-testid="stSidebar"] [data-testid="stMetricValue"] {
-    color: #ffffff !important;
+    color: #F2C94C !important;
+    font-weight: 700 !important;
 }
 [data-testid="stSidebar"] [data-testid="stMetricLabel"] {
     color: #b0b0b0 !important;
 }
-/* Sidebar inputs on dark bg */
+[data-testid="stSidebar"] [data-testid="stMetricLabel"] * {
+    color: #b0b0b0 !important;
+}
+/* Sidebar input labels */
+[data-testid="stSidebar"] label, [data-testid="stSidebar"] .stSelectbox label,
+[data-testid="stSidebar"] .stMultiSelect label, [data-testid="stSidebar"] .stTextInput label {
+    color: #e8e8e8 !important;
+    font-weight: 500 !important;
+}
+/* Sidebar select / input fields */
 [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div,
 [data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] > div,
-[data-testid="stSidebar"] input {
+[data-testid="stSidebar"] .stTextInput input,
+[data-testid="stSidebar"] .stNumberInput input {
     background-color: #2c2c2c !important;
-    color: #f0f0f0 !important;
-    border-color: #3d3d3d !important;
+    color: #f5f5f5 !important;
+    border: 1px solid #3d3d3d !important;
 }
-/* Sidebar buttons */
+[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] svg,
+[data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] svg {
+    fill: #F2C94C !important;
+}
+/* Multiselect chips/tags */
+[data-testid="stSidebar"] span[data-baseweb="tag"] {
+    background-color: #F2C94C !important;
+    color: #1a1a1a !important;
+}
+[data-testid="stSidebar"] span[data-baseweb="tag"] * {
+    color: #1a1a1a !important;
+}
+/* Sidebar list text / writes */
+[data-testid="stSidebar"] .stMarkdown p, [data-testid="stSidebar"] .stMarkdown li {
+    color: #d8d8d8 !important;
+}
+/* Sidebar buttons — white default, yellow on hover */
 [data-testid="stSidebar"] .stButton > button {
     background-color: #ffffff !important;
     color: #1a1a1a !important;
     border: none !important;
+    border-radius: 4px !important;
     font-weight: 600 !important;
+    transition: all 0.15s ease !important;
 }
 [data-testid="stSidebar"] .stButton > button:hover {
-    background-color: #d4af37 !important;
+    background-color: #F2C94C !important;
     color: #1a1a1a !important;
+}
+/* Sidebar dividers */
+[data-testid="stSidebar"] hr {
+    border-color: #3d3d3d !important;
 }
 
 /* Primary buttons in main area */
@@ -797,7 +836,7 @@ h4, h5, h6 {
 }
 .stButton > button:hover {
     background-color: #1a1a1a !important;
-    color: #ffffff !important;
+    color: #F2C94C !important;
     border-color: #1a1a1a !important;
 }
 
@@ -854,7 +893,7 @@ hr {
 st.markdown("""
 <div style='display:flex;align-items:center;gap:16px;padding:8px 0 4px'>
     <div style='font-size:30px;font-weight:800;letter-spacing:0.18em;color:#1a1a1a'>STACK</div>
-    <div style='width:1px;height:30px;background:#1a1a1a'></div>
+    <div style='width:4px;height:30px;background:#F2C94C'></div>
     <div style='font-size:15px;font-weight:400;letter-spacing:0.04em;color:#6b6b6b;padding-top:3px'>PROJECT CLOUD</div>
 </div>
 """, unsafe_allow_html=True)
