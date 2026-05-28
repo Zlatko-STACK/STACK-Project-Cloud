@@ -62,6 +62,12 @@ TASK_COLUMNS = [
 TASK_TEAMS = ["Design", "Project Management"]
 TASK_STATUSES = ["Not started", "Ongoing", "Completed"]
 
+TASK_STATUS_COLOURS = {
+    "Not started": "#aaaaaa",
+    "Ongoing": "#f39c12",
+    "Completed": "#2ecc71",
+}
+
 
 def ensure_data_file():
     if not DATA_FILE.exists():
@@ -512,6 +518,84 @@ def build_gantt_chart(df: pd.DataFrame, outlines: bool = False):
     return alt.layer(*layers).properties(height=height)
 
 
+@st.dialog("Project Tasks", width="large")
+def show_task_popup(proj_name: str):
+    st.subheader(proj_name)
+    tasks = st.session_state.tasks
+    proj_tasks = tasks[tasks["Project name"] == proj_name].copy()
+
+    for status in TASK_STATUSES:
+        status_tasks = proj_tasks[proj_tasks["Status"] == status]
+        colour = TASK_STATUS_COLOURS[status]
+        st.markdown(
+            f"<div style='font-weight:700;font-size:14px;color:{colour};"
+            f"border-bottom:2px solid {colour};padding-bottom:4px;margin:12px 0 8px'>"
+            f"{status} ({len(status_tasks)})</div>",
+            unsafe_allow_html=True,
+        )
+        if status_tasks.empty:
+            st.caption("No tasks.")
+        for _, task in status_tasks.iterrows():
+            tid = task["Task ID"]
+            with st.container():
+                c1, c2, c3 = st.columns([3, 2, 2])
+                with c1:
+                    st.markdown(f"**{task['Task name']}**")
+                    if task.get("Notes"):
+                        st.caption(task["Notes"])
+                with c2:
+                    assigned = [m.strip() for m in str(task["Assigned to"]).split(";") if m.strip()]
+                    new_assigned = st.multiselect(
+                        "Assignee",
+                        st.session_state.team_members,
+                        default=assigned,
+                        key=f"popup_assign_{tid}",
+                        label_visibility="collapsed",
+                    )
+                with c3:
+                    new_status = st.selectbox(
+                        "Status",
+                        TASK_STATUSES,
+                        index=TASK_STATUSES.index(task["Status"]) if task["Status"] in TASK_STATUSES else 0,
+                        key=f"popup_status_{tid}",
+                        label_visibility="collapsed",
+                    )
+                if new_assigned != assigned or new_status != task["Status"]:
+                    idx = st.session_state.tasks[st.session_state.tasks["Task ID"] == tid].index[0]
+                    st.session_state.tasks.at[idx, "Assigned to"] = "; ".join(new_assigned)
+                    st.session_state.tasks.at[idx, "Status"] = new_status
+                    st.session_state.tasks.at[idx, "Last updated"] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
+                    save_tasks(st.session_state.tasks)
+                st.divider()
+
+    st.markdown("### ＋ Add a task")
+    with st.form(key=f"popup_new_task_{proj_name}"):
+        new_task_name = st.text_input("Task name")
+        new_task_team = st.selectbox("Team", TASK_TEAMS)
+        new_task_assigned = st.multiselect("Assigned to", st.session_state.team_members)
+        new_task_status = st.selectbox("Status", TASK_STATUSES)
+        new_task_notes = st.text_area("Notes", height=80)
+        if st.form_submit_button("Create task", use_container_width=True):
+            if not new_task_name:
+                st.warning("Please enter a task name.")
+            else:
+                proj_row = st.session_state.projects[st.session_state.projects["Project name"] == proj_name]
+                proj_id = proj_row.iloc[0]["Project ID"] if not proj_row.empty else ""
+                task_data = {
+                    "Task ID": "",
+                    "Project ID": proj_id,
+                    "Project name": proj_name,
+                    "Task name": new_task_name,
+                    "Team": new_task_team,
+                    "Assigned to": "; ".join(new_task_assigned),
+                    "Status": new_task_status,
+                    "Notes": new_task_notes,
+                }
+                st.session_state.tasks = add_or_update_task(task_data, st.session_state.tasks)
+                save_tasks(st.session_state.tasks)
+                st.rerun()
+
+
 def build_traffic_light_cards(df: pd.DataFrame):
     today = pd.Timestamp.now().normalize()
 
@@ -610,10 +694,11 @@ def build_traffic_light_cards(df: pd.DataFrame):
 
             # Toggle expand/collapse
             is_expanded = st.session_state.expanded_card == proj
-            btn_label = "▲ Close" if is_expanded else "✏️ Update stage"
-            if st.button(btn_label, key=f"toggle_{proj}", use_container_width=True):
+            if st.button("✏️ Update stage", key=f"toggle_{proj}", use_container_width=True):
                 st.session_state.expanded_card = None if is_expanded else proj
                 st.rerun()
+            if st.button("📋 View tasks", key=f"tasks_{proj}", use_container_width=True):
+                show_task_popup(proj)
 
             if is_expanded:
                 with st.form(key=f"stage_form_{proj}"):
