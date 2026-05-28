@@ -722,6 +722,15 @@ html, body, [class*="css"], .stApp, .stMarkdown, p, div, span, label, input, sel
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
 }
 
+/* Preserve Material icon fonts (collapse arrows, etc.) */
+[data-testid="stIconMaterial"],
+span[class*="material-icons"],
+.material-icons, .material-icons-outlined, .material-symbols-outlined,
+[data-testid="stSidebarCollapseButton"] *,
+[data-testid="baseButton-headerNoPadding"] * {
+    font-family: 'Material Symbols Outlined', 'Material Icons' !important;
+}
+
 /* App background — soft architectural off-white */
 .stApp {
     background-color: #f6f5f3;
@@ -922,6 +931,14 @@ company_names = st.session_state.companies["Name"].dropna().tolist()
 # ── sidebar ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
+    # STACK Interiors logo
+    st.markdown(
+        "<div style='text-align:center;padding:8px 0 16px'>"
+        "<img src='https://www.stack.co.nz/assets/Uploads/Logo/logo.png' "
+        "style='max-width:160px;width:70%;filter:brightness(0) invert(1)' alt='STACK Interiors'/>"
+        "</div>",
+        unsafe_allow_html=True
+    )
     # Use current_page session state so we can programmatically switch pages
     page_index = PAGES.index(st.session_state.current_page) if st.session_state.current_page in PAGES else 0
     page = st.selectbox("Page", PAGES, index=page_index, key="page_selector")
