@@ -673,10 +673,10 @@ def build_traffic_light_cards(df):
             for p in card["phase_info"])
         fee_bar = (f"<div style='margin-top:10px'><div style='font-size:11px;color:#555;margin-bottom:3px'>Fee: ${card['consumed']:,.0f} of ${card['fee']:,.0f} used ({pct}%) &nbsp;·&nbsp; {card['hours']} hrs logged</div>"
                    f"<div style='background:#e0e0e0;border-radius:6px;height:8px;overflow:hidden'><div style='width:{min(pct,100)}%;height:100%;background:{fc};border-radius:6px'></div></div></div>") if card["fee"] > 0 else ""
-        html = (f"<div style='border:1px solid #ddd;border-radius:10px;padding:14px 16px;margin-bottom:6px;background:#fafafa;border-left:5px solid {sc}'>"
-                f"<div style='font-weight:700;font-size:15px;margin-bottom:2px'>{proj}</div>"
-                f"<div style='font-size:12px;color:#666;margin-bottom:8px'>{card['Client']} &nbsp;&middot;&nbsp;<span style='color:{sc};font-weight:600'>{card['Status']}</span></div>"
-                f"<div style='font-size:11px;color:#888;margin-bottom:10px'>Current stage: <strong>{card['Stage']}</strong></div>"
+        html = (f"<div style='border:1px solid #e3e1dd;border-radius:6px;padding:14px 16px;margin-bottom:6px;background:#ffffff;border-left:4px solid {sc};box-shadow:0 1px 3px rgba(0,0,0,0.04)'>"
+                f"<div style='font-weight:700;font-size:15px;margin-bottom:2px;color:#1a1a1a'>{proj}</div>"
+                f"<div style='font-size:12px;color:#6b6b6b;margin-bottom:8px'>{card['Client']} &nbsp;&middot;&nbsp;<span style='color:{sc};font-weight:600'>{card['Status']}</span></div>"
+                f"<div style='font-size:11px;color:#888;margin-bottom:10px'>Current stage: <strong style='color:#2c2c2c'>{card['Stage']}</strong></div>"
                 f"<div style='display:flex;flex-wrap:wrap;gap:8px'>{dots}</div>{fee_bar}</div>")
         with cols[i % 3]:
             st.markdown(html, unsafe_allow_html=True)
@@ -711,8 +711,154 @@ def filter_projects(df, stage_filter, status_filter, search_text):
 # ── app setup ─────────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title=PAGE_TITLE, layout="wide")
-st.title("🏢 STACK Project Cloud")
-st.markdown("Track fitout projects from concept through to code compliance.")
+
+# ── STACK Interiors brand theme ───────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* Base typography */
+html, body, [class*="css"], .stApp, .stMarkdown, p, div, span, label, input, select, textarea, button {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+}
+
+/* App background — soft architectural off-white */
+.stApp {
+    background-color: #f6f5f3;
+}
+
+/* Main title */
+h1 {
+    color: #1a1a1a !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.02em !important;
+}
+h2, h3 {
+    color: #1a1a1a !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.01em !important;
+}
+h4, h5, h6 {
+    color: #2c2c2c !important;
+    font-weight: 600 !important;
+}
+
+/* Subheaders / section labels with STACK accent underline */
+.stApp [data-testid="stSubheader"], .stApp h3 {
+    border-bottom: 2px solid #1a1a1a;
+    padding-bottom: 6px;
+    display: inline-block;
+}
+
+/* Sidebar — charcoal/black, the STACK signature */
+[data-testid="stSidebar"] {
+    background-color: #1a1a1a;
+}
+[data-testid="stSidebar"] * {
+    color: #f0f0f0 !important;
+}
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
+    color: #ffffff !important;
+    border-bottom: none;
+}
+[data-testid="stSidebar"] [data-testid="stMetricValue"] {
+    color: #ffffff !important;
+}
+[data-testid="stSidebar"] [data-testid="stMetricLabel"] {
+    color: #b0b0b0 !important;
+}
+/* Sidebar inputs on dark bg */
+[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div,
+[data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] > div,
+[data-testid="stSidebar"] input {
+    background-color: #2c2c2c !important;
+    color: #f0f0f0 !important;
+    border-color: #3d3d3d !important;
+}
+/* Sidebar buttons */
+[data-testid="stSidebar"] .stButton > button {
+    background-color: #ffffff !important;
+    color: #1a1a1a !important;
+    border: none !important;
+    font-weight: 600 !important;
+}
+[data-testid="stSidebar"] .stButton > button:hover {
+    background-color: #d4af37 !important;
+    color: #1a1a1a !important;
+}
+
+/* Primary buttons in main area */
+.stButton > button {
+    border-radius: 4px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.01em !important;
+    border: 1px solid #1a1a1a !important;
+    transition: all 0.15s ease !important;
+}
+.stButton > button:hover {
+    background-color: #1a1a1a !important;
+    color: #ffffff !important;
+    border-color: #1a1a1a !important;
+}
+
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 8px;
+    border-bottom: 1px solid #d8d6d2;
+}
+.stTabs [data-baseweb="tab"] {
+    font-weight: 600 !important;
+    color: #6b6b6b !important;
+    letter-spacing: 0.01em;
+}
+.stTabs [aria-selected="true"] {
+    color: #1a1a1a !important;
+    border-bottom-color: #1a1a1a !important;
+}
+
+/* Metrics in main area */
+[data-testid="stMetricValue"] {
+    color: #1a1a1a !important;
+    font-weight: 700 !important;
+}
+
+/* Dataframes */
+[data-testid="stDataFrame"] {
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+/* Download buttons */
+.stDownloadButton > button {
+    border-radius: 4px !important;
+    border: 1px solid #1a1a1a !important;
+    font-weight: 600 !important;
+}
+
+/* Horizontal rule softer */
+hr {
+    border-color: #d8d6d2 !important;
+}
+
+/* Inputs */
+.stTextInput input, .stNumberInput input, .stDateInput input,
+.stSelectbox div[data-baseweb="select"] > div,
+.stMultiSelect div[data-baseweb="select"] > div,
+.stTextArea textarea {
+    border-radius: 4px !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Branded header
+st.markdown("""
+<div style='display:flex;align-items:center;gap:16px;padding:8px 0 4px'>
+    <div style='font-size:30px;font-weight:800;letter-spacing:0.18em;color:#1a1a1a'>STACK</div>
+    <div style='width:1px;height:30px;background:#1a1a1a'></div>
+    <div style='font-size:15px;font-weight:400;letter-spacing:0.04em;color:#6b6b6b;padding-top:3px'>PROJECT CLOUD</div>
+</div>
+""", unsafe_allow_html=True)
+st.markdown("<div style='color:#6b6b6b;font-size:14px;margin-bottom:8px'>Designing Workplace Brilliance — from concept through to code compliance.</div>", unsafe_allow_html=True)
 
 for key, loader in [("projects", load_projects), ("members_df", load_team_members), ("roles_df", load_roles),
                     ("tasks", load_tasks), ("timesheets", load_timesheets), ("estimates", load_estimates),
@@ -966,7 +1112,7 @@ elif page == "Task Tracker":
         for i, (_, task) in enumerate(task_df.iterrows()):
             tid = task["Task ID"]; colour = TASK_STATUS_COLOURS.get(task["Status"], "#aaaaaa"); is_exp = st.session_state.expanded_task == tid
             with cols[i % 3]:
-                st.markdown(f"<div style='border:1px solid #ddd;border-radius:10px;padding:14px 16px;margin-bottom:6px;background:#fafafa;border-left:5px solid {colour}'><div style='font-weight:700;font-size:14px;margin-bottom:4px'>{task['Task name']}</div><div style='font-size:11px;color:#666;margin-bottom:4px'>📁 {task['Project name']}</div><div style='font-size:11px;color:#666;margin-bottom:4px'>👤 {task['Assigned to'] or 'Unassigned'}</div><div style='display:inline-block;padding:2px 10px;border-radius:12px;background:{colour};color:white;font-size:11px;font-weight:600'>{task['Status']}</div>" + (f"<div style='font-size:11px;color:#888;margin-top:8px'>{task['Notes']}</div>" if task["Notes"] else "") + "</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='border:1px solid #e3e1dd;border-radius:6px;padding:14px 16px;margin-bottom:6px;background:#ffffff;border-left:4px solid {colour};box-shadow:0 1px 3px rgba(0,0,0,0.04)'><div style='font-weight:700;font-size:14px;margin-bottom:4px;color:#1a1a1a'>{task['Task name']}</div><div style='font-size:11px;color:#6b6b6b;margin-bottom:4px'>📁 {task['Project name']}</div><div style='font-size:11px;color:#6b6b6b;margin-bottom:4px'>👤 {task['Assigned to'] or 'Unassigned'}</div><div style='display:inline-block;padding:2px 10px;border-radius:12px;background:{colour};color:white;font-size:11px;font-weight:600'>{task['Status']}</div>" + (f"<div style='font-size:11px;color:#888;margin-top:8px'>{task['Notes']}</div>" if task["Notes"] else "") + "</div>", unsafe_allow_html=True)
                 if st.button("▲ Close" if is_exp else "✏️ Edit", key=f"task_toggle_{tid}", use_container_width=True):
                     st.session_state.expanded_task = None if is_exp else tid; st.rerun()
                 if is_exp:
@@ -1246,9 +1392,9 @@ elif page == "Timesheets":
             for i, (_, e) in enumerate(ts_df.sort_values("Date", ascending=False).iterrows()):
                 eid = e["Entry ID"]; invoiced = e.get("Invoiced", "False") == "True"
                 with cols[i % 3]:
-                    border_col = "#2ecc71" if invoiced else "#3498db"
+                    border_col = "#2ecc71" if invoiced else "#1a1a1a"
                     badge = "<span style='background:#2ecc71;color:white;padding:2px 8px;border-radius:8px;font-size:10px'>🧾 Invoiced</span>" if invoiced else ""
-                    st.markdown(f"<div style='border:1px solid #ddd;border-radius:10px;padding:14px 16px;margin-bottom:6px;background:#fafafa;border-left:5px solid {border_col}'><div style='font-weight:700;font-size:14px'>{e['Team member']} {badge}</div><div style='font-size:11px;color:#666'>📁 {e['Project name']} — {e['Phase'] or 'No phase'}</div><div style='font-size:11px;color:#666'>🗓 {e['Date']} &nbsp;·&nbsp; {e['Role']}</div><div style='font-size:13px;font-weight:600;margin-top:6px'>{e['Hours']} hrs @ ${e['Rate']}/hr = <span style='color:#2ecc71'>${e['Cost']:,.2f}</span></div>" + (f"<div style='font-size:11px;color:#888;margin-top:4px'>{e['Notes']}</div>" if e["Notes"] else "") + "</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='border:1px solid #e3e1dd;border-radius:6px;padding:14px 16px;margin-bottom:6px;background:#ffffff;border-left:4px solid {border_col};box-shadow:0 1px 3px rgba(0,0,0,0.04)'><div style='font-weight:700;font-size:14px;color:#1a1a1a'>{e['Team member']} {badge}</div><div style='font-size:11px;color:#6b6b6b'>📁 {e['Project name']} — {e['Phase'] or 'No phase'}</div><div style='font-size:11px;color:#6b6b6b'>🗓 {e['Date']} &nbsp;·&nbsp; {e['Role']}</div><div style='font-size:13px;font-weight:600;margin-top:6px;color:#1a1a1a'>{e['Hours']} hrs @ ${e['Rate']}/hr = <span style='color:#2ecc71'>${e['Cost']:,.2f}</span></div>" + (f"<div style='font-size:11px;color:#888;margin-top:4px'>{e['Notes']}</div>" if e["Notes"] else "") + "</div>", unsafe_allow_html=True)
                     if st.button("🗑 Delete", key=f"del_ts_page_{eid}", use_container_width=True):
                         st.session_state.timesheets = st.session_state.timesheets[st.session_state.timesheets["Entry ID"] != eid]
                         save_timesheets(st.session_state.timesheets); st.rerun()
@@ -1542,11 +1688,11 @@ elif page == "Invoices":
                 inv_total = invoice_total(iid, st.session_state.invoice_lines)
                 with cols[i % 3]:
                     st.markdown(
-                        f"<div style='border:1px solid #ddd;border-radius:10px;padding:14px 16px;margin-bottom:6px;background:#fafafa;border-left:5px solid {sc}'>"
-                        f"<div style='font-weight:700;font-size:15px;margin-bottom:2px'>{inv['Invoice number']}</div>"
-                        f"<div style='font-size:12px;color:#666;margin-bottom:4px'>{inv['Client']} · {inv.get('Project name','') or 'No project'}</div>"
+                        f"<div style='border:1px solid #e3e1dd;border-radius:6px;padding:14px 16px;margin-bottom:6px;background:#ffffff;border-left:4px solid {sc};box-shadow:0 1px 3px rgba(0,0,0,0.04)'>"
+                        f"<div style='font-weight:700;font-size:15px;margin-bottom:2px;color:#1a1a1a'>{inv['Invoice number']}</div>"
+                        f"<div style='font-size:12px;color:#6b6b6b;margin-bottom:4px'>{inv['Client']} · {inv.get('Project name','') or 'No project'}</div>"
                         f"<div style='display:inline-block;padding:2px 10px;border-radius:12px;background:{sc};color:white;font-size:11px;font-weight:600;margin-bottom:6px'>{inv['Status']}</div>"
-                        f"<div style='font-size:13px;font-weight:700;color:#2c3e50'>${inv_total:,.2f}</div>"
+                        f"<div style='font-size:13px;font-weight:700;color:#1a1a1a'>${inv_total:,.2f}</div>"
                         f"<div style='font-size:11px;color:#888'>Issued: {inv['Issue date']} · Due: {inv['Due date']}</div>"
                         "</div>", unsafe_allow_html=True)
                     if st.button("Open", key=f"open_inv_{iid}", use_container_width=True):
@@ -1779,14 +1925,14 @@ elif page == "Clients":
                     billing = client_billing_summary(cid, st.session_state.invoices, st.session_state.invoice_lines)
                     with cols[i % 3]:
                         st.markdown(
-                            f"<div style='border:1px solid #ddd;border-radius:10px;padding:14px 16px;margin-bottom:6px;background:#fafafa;border-left:5px solid {sc}'>"
-                            f"<div style='font-weight:700;font-size:15px;margin-bottom:4px'>{co['Name']}</div>"
+                            f"<div style='border:1px solid #e3e1dd;border-radius:6px;padding:14px 16px;margin-bottom:6px;background:#ffffff;border-left:4px solid {sc};box-shadow:0 1px 3px rgba(0,0,0,0.04)'>"
+                            f"<div style='font-weight:700;font-size:15px;margin-bottom:4px;color:#1a1a1a'>{co['Name']}</div>"
                             f"<div style='display:inline-block;padding:2px 10px;border-radius:12px;background:{sc};color:white;font-size:11px;font-weight:600;margin-bottom:6px'>{co['Status']}</div>"
-                            f"<div style='font-size:11px;color:#666'>{co['Industry'] or ''}</div>"
-                            f"<div style='font-size:11px;color:#666'>📞 {co['Phone'] or '—'} &nbsp;·&nbsp; 🌐 {co['Website'] or '—'}</div>"
+                            f"<div style='font-size:11px;color:#6b6b6b'>{co['Industry'] or ''}</div>"
+                            f"<div style='font-size:11px;color:#6b6b6b'>📞 {co['Phone'] or '—'} &nbsp;·&nbsp; 🌐 {co['Website'] or '—'}</div>"
                             f"<div style='font-size:11px;color:#888;margin-top:4px'>📁 {linked_proj_count} projects &nbsp;·&nbsp; 👤 {linked_contact_count} contacts</div>"
                             f"<div style='font-size:11px;color:#888'>💰 ${billing['total_invoiced']:,.0f} invoiced &nbsp;·&nbsp; ${billing['outstanding']:,.0f} outstanding</div>"
-                            + (f"<div style='margin-top:6px'>{' '.join(f'<span style=background:#eee;padding:2px 6px;border-radius:8px;font-size:10px>{t}</span>' for t in parse_tags(co['Tags']))}</div>" if co["Tags"] else "")
+                            + (f"<div style='margin-top:6px'>{' '.join(f'<span style=background:#f0eee9;padding:2px 6px;border-radius:8px;font-size:10px>{t}</span>' for t in parse_tags(co['Tags']))}</div>" if co["Tags"] else "")
                             + "</div>", unsafe_allow_html=True)
                         if st.button("Open", key=f"open_co_{cid}", use_container_width=True):
                             st.session_state.active_company_id = cid; st.rerun()
@@ -1888,11 +2034,11 @@ elif page == "Clients":
                 for i, (_, ct) in enumerate(cts.iterrows()):
                     ctid = ct["Contact ID"]
                     with cols[i % 3]:
-                        st.markdown("<div style='border:1px solid #ddd;border-radius:10px;padding:14px 16px;margin-bottom:6px;background:#fafafa;border-left:5px solid #3498db'>"
-                                    f"<div style='font-weight:700;font-size:15px;margin-bottom:2px'>{ct['First name']} {ct['Last name']}</div>"
-                                    f"<div style='font-size:12px;color:#666;margin-bottom:4px'>{ct['Title'] or ''} &nbsp;·&nbsp; {ct['Company name'] or 'No company'}</div>"
-                                    f"<div style='font-size:11px;color:#666'>📧 {ct['Email'] or '—'}</div>"
-                                    f"<div style='font-size:11px;color:#666'>📞 {ct['Phone'] or '—'}</div>"
+                        st.markdown("<div style='border:1px solid #e3e1dd;border-radius:6px;padding:14px 16px;margin-bottom:6px;background:#ffffff;border-left:4px solid #1a1a1a;box-shadow:0 1px 3px rgba(0,0,0,0.04)'>"
+                                    f"<div style='font-weight:700;font-size:15px;margin-bottom:2px;color:#1a1a1a'>{ct['First name']} {ct['Last name']}</div>"
+                                    f"<div style='font-size:12px;color:#6b6b6b;margin-bottom:4px'>{ct['Title'] or ''} &nbsp;·&nbsp; {ct['Company name'] or 'No company'}</div>"
+                                    f"<div style='font-size:11px;color:#6b6b6b'>📧 {ct['Email'] or '—'}</div>"
+                                    f"<div style='font-size:11px;color:#6b6b6b'>📞 {ct['Phone'] or '—'}</div>"
                                     + ("⭐ Primary" if ct.get("Is primary") == "True" else "") + "</div>", unsafe_allow_html=True)
                         if st.button("Open", key=f"open_ct_{ctid}", use_container_width=True):
                             st.session_state.active_contact_id = ctid; st.rerun()
