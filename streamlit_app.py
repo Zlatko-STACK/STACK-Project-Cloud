@@ -835,6 +835,14 @@ h4, h5, h6 {
     border-color: #3d3d3d !important;
 }
 
+/* Remove ability to collapse/hide the sidebar */
+[data-testid="stSidebarCollapseButton"],
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"],
+button[kind="headerNoPadding"] {
+    display: none !important;
+}
+
 /* Primary buttons in main area */
 .stButton > button {
     border-radius: 4px !important;
@@ -931,11 +939,11 @@ company_names = st.session_state.companies["Name"].dropna().tolist()
 # ── sidebar ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    # STACK Interiors logo
+    # STACK Interiors logo — fills the top band
     st.markdown(
-        "<div style='text-align:center;padding:8px 0 16px'>"
+        "<div style='text-align:center;padding:0 0 18px;margin:-8px -8px 8px'>"
         "<img src='https://www.stack.co.nz/assets/Uploads/Logo/logo.png' "
-        "style='max-width:160px;width:70%;filter:brightness(0) invert(1)' alt='STACK Interiors'/>"
+        "style='width:100%;display:block;filter:brightness(0) invert(1)' alt='STACK Interiors'/>"
         "</div>",
         unsafe_allow_html=True
     )
