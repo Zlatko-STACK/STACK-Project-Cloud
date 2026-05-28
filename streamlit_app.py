@@ -490,6 +490,142 @@ def show_log_hours_popup(proj_name, proj_id):
                         save_timesheets(st.session_state.timesheets); st.session_state.expanded_ts_entry = None; st.rerun()
             st.divider()
 
+# ── Gantt chart ───────────────────────────────────────────────────────────────
+
+def build_gantt_chart(df):
+    if df.empty:
+        st.info("No projects to display.")
+        return
+
+    STATUS_COLOURS = {
+        "On track": "#2ecc71", "At risk": "#f39c12",
+        "Delayed": "#e74c3c", "Complete": "#95a5a6"
+    }
+    today = pd.Timestamp.now().normalize()
+
+    rows = []
+    for _, proj in df.iterrows():
+        phases = parse_phase_schedule(proj.get("Phase schedule", ""))
+        if not phases:
+            continue
+        status = proj.get("Status", "On track")
+        colour = STATUS_COLOURS.get(status, "#3498db")
+        for p in phases:
+            rows.append({
+                "Project": proj["Project name"],
+                "Phase": p["Stage"],
+                "Start": p["Start date"],
+                "End": p["Target completion"],
+                "Status": status,
+                "Colour": colour,
+                "Label": f"{proj['Project name']} — {p['Stage']}",
+            })
+
+    if not rows:
+        st.info("No phase schedules found. Add phase schedules to your projects to see the Gantt chart.")
+        return
+
+    gantt = pd.DataFrame(rows)
+    gantt["Start"] = pd.to_datetime(gantt["Start"])
+    gantt["End"] = pd.to_datetime(gantt["End"])
+
+    # Sort: by project name then phase order
+    gantt["Phase order"] = gantt["Phase"].apply(lambda x: STAGES.index(x) if x in STAGES else 99)
+    gantt = gantt.sort_values(["Project", "Phase order"]).reset_index(drop=True)
+
+    # Y-axis: indent phases under bold project headers
+    # Insert a header row per project group
+    y_labels = []
+    y_map = {}   # label -> display string
+    prev_proj = None
+    display_rows = []
+    for _, row in gantt.iterrows():
+        if row["Project"] != prev_proj:
+            header = f"▸ {row['Project']}"
+            y_labels.append(header)
+            y_map[header] = header
+            prev_proj = row["Project"]
+        phase_label = f"   {row['Phase']}"
+        y_labels.append(phase_label)
+        display_rows.append({**row.to_dict(), "y_label": phase_label})
+
+    disp_df = pd.DataFrame(display_rows)
+
+    # Build bars
+    bars = alt.Chart(disp_df).mark_bar(height=16, cornerRadiusEnd=4, cornerRadiusStart=4).encode(
+        x=alt.X("Start:T", title="", axis=alt.Axis(format="%b %Y", tickCount="month", grid=True, gridColor="#f0f0f0", labelFontSize=11)),
+        x2=alt.X2("End:T"),
+        y=alt.Y("y_label:N", sort=y_labels, title="",
+                axis=alt.Axis(labelFontSize=12, labelLimit=220, ticks=False, domain=False)),
+        color=alt.Color("Status:N",
+            scale=alt.Scale(
+                domain=list(STATUS_COLOURS.keys()),
+                range=list(STATUS_COLOURS.values())
+            ),
+            legend=alt.Legend(title="Status", orient="top", titleFontSize=11, labelFontSize=11)
+        ),
+        tooltip=[
+            alt.Tooltip("Project:N", title="Project"),
+            alt.Tooltip("Phase:N", title="Phase"),
+            alt.Tooltip("Start:T", title="Start", format="%d %b %Y"),
+            alt.Tooltip("End:T", title="End", format="%d %b %Y"),
+            alt.Tooltip("Status:N", title="Status"),
+        ]
+    )
+
+    # Phase labels on bars
+    bar_labels = alt.Chart(disp_df).mark_text(
+        align="left", dx=4, fontSize=10, color="#fff", fontWeight="bold"
+    ).encode(
+        x=alt.X("Start:T"),
+        y=alt.Y("y_label:N", sort=y_labels),
+        text=alt.Text("Phase:N"),
+    )
+
+    # Today line
+    today_df = pd.DataFrame({"today": [today]})
+    today_line = alt.Chart(today_df).mark_rule(
+        color="#e74c3c", strokeWidth=2, strokeDash=[4, 3]
+    ).encode(x=alt.X("today:T"))
+
+    today_label = alt.Chart(today_df).mark_text(
+        text="Today", color="#e74c3c", fontSize=11,
+        fontWeight="bold", align="center", dy=-6
+    ).encode(x=alt.X("today:T"), y=alt.value(0))
+
+    # Project header rows (greyed background bands)
+    header_rows = [r for r in y_labels if r.startswith("▸")]
+    if header_rows:
+        hdr_df = pd.DataFrame({"y_label": header_rows})
+        header_bands = alt.Chart(hdr_df).mark_rect(
+            color="#f4f6f8", height=28
+        ).encode(
+            y=alt.Y("y_label:N", sort=y_labels),
+        )
+        header_text = alt.Chart(hdr_df).mark_text(
+            align="left", dx=-220, fontSize=12,
+            fontWeight="bold", color="#2c3e50"
+        ).encode(
+            y=alt.Y("y_label:N", sort=y_labels),
+            text=alt.Text("y_label:N"),
+        )
+        chart = alt.layer(header_bands, bars, bar_labels, today_line, today_label, header_text)
+    else:
+        chart = alt.layer(bars, bar_labels, today_line, today_label)
+
+    n_rows = len(y_labels)
+    chart = chart.properties(
+        width="container",
+        height=max(300, n_rows * 28 + 60),
+    ).configure_view(
+        strokeWidth=0
+    ).configure_axis(
+        labelColor="#555", domainColor="#ddd", gridColor="#f0f0f0"
+    )
+
+    st.altair_chart(chart, use_container_width=True)
+
+
 # ── traffic light cards ───────────────────────────────────────────────────────
 
 def build_traffic_light_cards(df):
@@ -736,8 +872,14 @@ if page == "Project Tracker":
                     save_projects(st.session_state.projects); st.session_state.message = f"Deleted '{selected}'."; st.session_state.selected_project = ""; st.session_state.selectbox_key += 1; st.rerun()
     st.markdown("---")
     st.subheader("Project Stages")
-    st.caption("🔴 < 14 days  |  🟡 14–30 days  |  🟢 30+ days  |  ⚫ Not scheduled / passed")
-    build_traffic_light_cards(filtered)
+    view_tab1, view_tab2 = st.tabs(["🟦 Cards", "📊 Gantt"])
+
+    with view_tab1:
+        st.caption("🔴 < 14 days  |  🟡 14–30 days  |  🟢 30+ days  |  ⚫ Not scheduled / passed")
+        build_traffic_light_cards(filtered)
+
+    with view_tab2:
+        build_gantt_chart(filtered)
     st.markdown("---")
     col_add, col_team = st.columns(2)
     with col_add:
