@@ -552,7 +552,7 @@ def build_gantt_chart(df):
     disp_df = pd.DataFrame(display_rows)
 
     # Build bars
-    bars = alt.Chart(disp_df).mark_bar(height=16, cornerRadiusEnd=4, cornerRadiusStart=4).encode(
+    bars = alt.Chart(disp_df).mark_bar(height=16, cornerRadius=4).encode(
         x=alt.X("Start:T", title="", axis=alt.Axis(format="%b %Y", tickCount="month", grid=True, gridColor="#f0f0f0", labelFontSize=11)),
         x2=alt.X2("End:T"),
         y=alt.Y("y_label:N", sort=y_labels, title="",
