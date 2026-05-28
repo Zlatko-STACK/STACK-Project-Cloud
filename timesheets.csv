@@ -1,3 +1,8 @@
-Entry ID,Project ID,Project name,Phase,Team member,Role,Date,Hours,Rate,Notes
-32fa26e5,25054,IAG Bike Shed,Design Development,Zlatko Vuletic,Technician,2026-05-28,80.0,175.0,
-775fb817,26008,GHD Fitout,Design Development,Zlatko Vuletic,Technician,2026-05-28,8.0,175.0,Dedicated to setting up stair drawings
+Entry ID,Project ID,Project name,Phase,Team member,Role,Date,Hours,Rate,Notes,Invoiced
+dfca774a,,Admin,Admin,Zlatko Vuletic,Technician,2026-05-25,0.5,0.0,,False
+9f55920a,,Admin,Admin,Zlatko Vuletic,Technician,2026-05-26,0.5,0.0,,False
+93e6e7ae,,Admin,Admin,Zlatko Vuletic,Technician,2026-05-27,0.5,0.0,,False
+512e9941,,Admin,Admin,Zlatko Vuletic,Technician,2026-05-28,0.5,0.0,,False
+cb3189ce,,Admin,Admin,Zlatko Vuletic,Technician,2026-05-29,0.5,0.0,,False
+d614d67f,,WIP,WIP,Zlatko Vuletic,Technician,2026-05-27,1.0,0.0,,False
+65053279,,Design Team Meeting,Design Team Meeting,Zlatko Vuletic,Technician,2026-05-25,1.0,0.0,,False
