@@ -614,9 +614,10 @@ def build_gantt_chart(df):
         chart = alt.layer(bars, bar_labels, today_line, today_label)
 
     n_rows = len(y_labels)
+    chart_height = max(500, n_rows * 32 + 120)
     chart = chart.properties(
         width="container",
-        height=max(300, n_rows * 28 + 60),
+        height=chart_height,
         background="transparent",
     ).configure_view(
         strokeWidth=0,
