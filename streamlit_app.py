@@ -33,6 +33,8 @@ ESTIMATE_LINE_COLUMNS = ["Line ID", "Estimate ID", "Phase", "Role", "Hours", "Ra
 ESTIMATE_DISB_COLUMNS = ["Disb ID", "Estimate ID", "Description", "Type", "Value"]
 COMPANY_COLUMNS = ["Company ID", "Name", "Status", "Industry", "Website", "Phone", "Billing address", "Postal address", "Referral source", "Notes", "Tags", "Custom fields", "Created", "Last updated"]
 CONTACT_COLUMNS = ["Contact ID", "Company ID", "Company name", "First name", "Last name", "Title", "Email", "Phone", "Mobile", "Address", "Notes", "Tags", "Custom fields", "Is primary", "Created", "Last updated"]
+INVOICE_COLUMNS = ["Invoice ID", "Company ID", "Project ID", "Project name", "Invoice number", "Issue date", "Due date", "Status", "Payment details", "Notes"]
+INVOICE_LINE_COLUMNS = ["Line ID", "Invoice ID", "Description", "Quantity", "Unit price", "Amount"]
 TIMESHEET_LOCK_PASSWORD = "test"
 
 TASK_TEAMS = ["Design", "Project Management"]
@@ -54,6 +56,7 @@ def parse_budget(value):
     except: return 0.0
 
 def format_budget(value): return f"${parse_budget(value):,.2f}"
+
 def parse_weekly_hours(value):
     if pd.isna(value) or value == "": return 0.0
     try: return float(str(value).replace(",", "").strip())
@@ -76,11 +79,13 @@ def parse_member_hours(value):
     return out
 
 def normalize_member_hours(d): return "\n".join(f"{m}: {h}" for m, h in sorted(d.items()))
+
 def compliance_to_list(value):
     if not value or pd.isna(value): return []
     return [i.strip() for i in str(value).split(";") if i.strip()]
 
 def normalize_checklist(values): return "; ".join(sorted(values))
+
 def compliance_progress(value):
     done = len([t for t in compliance_to_list(value) if t in COMPLIANCE_TASKS])
     return int((done / len(COMPLIANCE_TASKS)) * 100) if COMPLIANCE_TASKS else 0
@@ -92,6 +97,7 @@ def parse_milestones(value):
     return [l.strip() for l in str(value).splitlines() if l.strip()]
 
 def normalize_milestones(value): return "\n".join(parse_milestones(value))
+
 def milestone_progress(value):
     ms = parse_milestones(value)
     if not ms: return 0
@@ -114,30 +120,25 @@ def parse_phase_schedule(value):
     return phases
 
 def normalize_phase_schedule(value): return "\n".join(l.strip() for l in str(value).splitlines() if l.strip())
+
 def parse_date(value, fallback=None):
     p = pd.to_datetime(value, errors="coerce")
     return fallback if pd.isna(p) else p.date()
 
 def create_id(): return uuid.uuid4().hex[:8]
+
 def parse_custom_fields(value):
     if not value or pd.isna(value) or value == "": return []
     try: return json.loads(value)
     except: return []
 
 def serialize_custom_fields(fields): return json.dumps(fields)
+
 def parse_tags(value):
     if not value or pd.isna(value): return []
     return [t.strip() for t in str(value).split(",") if t.strip()]
 
 def normalize_tags(tags): return ", ".join(sorted(set(tags)))
-
-def next_invoice_number(invoices_df):
-    if invoices_df.empty: return "INV-001"
-    nums = []
-    for n in invoices_df["Invoice number"]:
-        try: nums.append(int(str(n).replace("INV-", "")))
-        except: pass
-    return f"INV-{(max(nums) + 1):03d}" if nums else "INV-001"
 
 # ── data loaders ──────────────────────────────────────────────────────────────
 
@@ -153,13 +154,16 @@ def load_df(path, columns):
 
 def load_projects(): return load_df(DATA_FILE, COLUMNS)
 def save_projects(df): df.to_csv(DATA_FILE, index=False)
+
 def load_team_members():
     ensure_file(TEAM_MEMBERS_FILE, ["Team member", "Role"])
     df = pd.read_csv(TEAM_MEMBERS_FILE, dtype=str).fillna("")
     for c in ["Team member", "Role"]:
         if c not in df.columns: df[c] = ""
     return df
+
 def save_team_members_df(df): df.to_csv(TEAM_MEMBERS_FILE, index=False)
+
 def load_roles():
     ensure_file(ROLES_FILE, ["Role", "Hourly rate"])
     df = pd.read_csv(ROLES_FILE, dtype=str).fillna("")
@@ -167,30 +171,40 @@ def load_roles():
         df = pd.DataFrame([{"Role": r, "Hourly rate": str(rate)} for r, rate in DEFAULT_ROLES.items()])
         df.to_csv(ROLES_FILE, index=False)
     return df
+
 def save_roles(df): df.to_csv(ROLES_FILE, index=False)
+
 def get_role_rates(roles_df):
     out = {}
     for _, row in roles_df.iterrows():
         try: out[row["Role"]] = float(row["Hourly rate"])
         except: pass
     return out
+
 def load_tasks(): return load_df(TASKS_FILE, TASK_COLUMNS)
 def save_tasks(df): df.to_csv(TASKS_FILE, index=False)
+
 def load_timesheets():
     ensure_file(TIMESHEETS_FILE, TIMESHEET_COLUMNS)
     df = pd.read_csv(TIMESHEETS_FILE, dtype=str).fillna("")
     for c in TIMESHEET_COLUMNS:
         if c not in df.columns: df[c] = ""
     return df[TIMESHEET_COLUMNS]
+
 def save_timesheets(df): df.to_csv(TIMESHEETS_FILE, index=False)
+
 def load_estimates(): return load_df(ESTIMATES_FILE, ESTIMATE_COLUMNS)
 def save_estimates(df): df.to_csv(ESTIMATES_FILE, index=False)
+
 def load_estimate_lines(): return load_df(ESTIMATE_LINES_FILE, ESTIMATE_LINE_COLUMNS)
 def save_estimate_lines(df): df.to_csv(ESTIMATE_LINES_FILE, index=False)
+
 def load_estimate_disb(): return load_df(ESTIMATE_DISB_FILE, ESTIMATE_DISB_COLUMNS)
 def save_estimate_disb(df): df.to_csv(ESTIMATE_DISB_FILE, index=False)
+
 def load_companies(): return load_df(COMPANIES_FILE, COMPANY_COLUMNS)
 def save_companies(df): df.to_csv(COMPANIES_FILE, index=False)
+
 def load_contacts(): return load_df(CONTACTS_FILE, CONTACT_COLUMNS)
 def save_contacts(df): df.to_csv(CONTACTS_FILE, index=False)
 
@@ -227,18 +241,18 @@ def add_timesheet_entry(data, df):
 # ── invoice helpers ───────────────────────────────────────────────────────────
 
 def invoice_total(inv_id, lines_df):
+    if lines_df.empty: return 0.0
     lines = lines_df[lines_df["Invoice ID"] == inv_id]
     return round(lines["Amount"].apply(parse_budget).sum(), 2)
 
 def client_billing_summary(company_id, invoices_df, lines_df):
+    if invoices_df.empty:
+        return {"total_invoiced": 0.0, "paid": 0.0, "outstanding": 0.0}
     inv = invoices_df[invoices_df["Company ID"] == company_id]
     total_invoiced = sum(invoice_total(r["Invoice ID"], lines_df) for _, r in inv.iterrows())
     paid = sum(invoice_total(r["Invoice ID"], lines_df) for _, r in inv.iterrows() if r["Status"] == "Paid")
     outstanding = total_invoiced - paid
     return {"total_invoiced": round(total_invoiced, 2), "paid": round(paid, 2), "outstanding": round(outstanding, 2)}
-
-def get_uninvoiced_entries(project_id, timesheets_df):
-    return timesheets_df[(timesheets_df["Project ID"] == project_id) & (timesheets_df["Invoiced"] != "True")].copy()
 
 def generate_invoice_html(inv_row, lines_df, company_name):
     inv_id = inv_row["Invoice ID"]
@@ -496,18 +510,14 @@ def build_gantt_chart(df):
     rows = []
     for _, proj in df.iterrows():
         phases = parse_phase_schedule(proj.get("Phase schedule", ""))
-        if not phases:
-            continue
+        if not phases: continue
         status = proj.get("Status", "On track")
         colour = STATUS_COLOURS.get(status, "#3498db")
         for p in phases:
             rows.append({
-                "Project": proj["Project name"],
-                "Phase": p["Stage"],
-                "Start": p["Start date"],
-                "End": p["Target completion"],
-                "Status": status,
-                "Colour": colour,
+                "Project": proj["Project name"], "Phase": p["Stage"],
+                "Start": p["Start date"], "End": p["Target completion"],
+                "Status": status, "Colour": colour,
                 "Label": f"{proj['Project name']} — {p['Stage']}",
             })
 
@@ -518,111 +528,63 @@ def build_gantt_chart(df):
     gantt = pd.DataFrame(rows)
     gantt["Start"] = pd.to_datetime(gantt["Start"])
     gantt["End"] = pd.to_datetime(gantt["End"])
-
-    # Sort: by project name then phase order
     gantt["Phase order"] = gantt["Phase"].apply(lambda x: STAGES.index(x) if x in STAGES else 99)
     gantt = gantt.sort_values(["Project", "Phase order"]).reset_index(drop=True)
 
-    # Y-axis: indent phases under bold project headers
-    # Insert a header row per project group
     y_labels = []
-    y_map = {}   # label -> display string
     prev_proj = None
     display_rows = []
     for _, row in gantt.iterrows():
         if row["Project"] != prev_proj:
             header = f"▸ {row['Project']}"
             y_labels.append(header)
-            y_map[header] = header
             prev_proj = row["Project"]
-        # Make phase label unique per project to prevent merging
         phase_label = f"{row['Project']} | {row['Phase']}"
         y_labels.append(phase_label)
-        # Store display version with indentation
         display_rows.append({**row.to_dict(), "y_label": phase_label, "y_display": f"   {row['Phase']}"})
 
     disp_df = pd.DataFrame(display_rows)
 
-    # Build bars
     bars = alt.Chart(disp_df).mark_bar(height=16, cornerRadius=4).encode(
         x=alt.X("Start:T", title="", axis=alt.Axis(format="%b %Y", tickCount="month", grid=True, gridColor="#f0f0f0", labelFontSize=11)),
         x2=alt.X2("End:T"),
         y=alt.Y("y_label:N", sort=y_labels, title="",
                 axis=alt.Axis(labelFontSize=12, labelLimit=220, ticks=False, domain=False)),
         color=alt.Color("Status:N",
-            scale=alt.Scale(
-                domain=list(STATUS_COLOURS.keys()),
-                range=list(STATUS_COLOURS.values())
-            ),
-            legend=alt.Legend(title="Status", orient="top", titleFontSize=11, labelFontSize=11)
-        ),
+            scale=alt.Scale(domain=list(STATUS_COLOURS.keys()), range=list(STATUS_COLOURS.values())),
+            legend=alt.Legend(title="Status", orient="top", titleFontSize=11, labelFontSize=11)),
         tooltip=[
-            alt.Tooltip("Project:N", title="Project"),
-            alt.Tooltip("Phase:N", title="Phase"),
+            alt.Tooltip("Project:N", title="Project"), alt.Tooltip("Phase:N", title="Phase"),
             alt.Tooltip("Start:T", title="Start", format="%d %b %Y"),
             alt.Tooltip("End:T", title="End", format="%d %b %Y"),
             alt.Tooltip("Status:N", title="Status"),
         ]
     )
 
-    # Phase labels on bars
-    bar_labels = alt.Chart(disp_df).mark_text(
-        align="left", dx=4, fontSize=10, color="#fff", fontWeight="bold"
-    ).encode(
-        x=alt.X("Start:T"),
-        y=alt.Y("y_label:N", sort=y_labels),
-        text=alt.Text("Phase:N"),
+    bar_labels = alt.Chart(disp_df).mark_text(align="left", dx=4, fontSize=10, color="#fff", fontWeight="bold").encode(
+        x=alt.X("Start:T"), y=alt.Y("y_label:N", sort=y_labels), text=alt.Text("Phase:N"),
     )
 
-    # Today line
     today_df = pd.DataFrame({"today": [today]})
-    today_line = alt.Chart(today_df).mark_rule(
-        color="#e74c3c", strokeWidth=2, strokeDash=[4, 3]
-    ).encode(x=alt.X("today:T"))
+    today_line = alt.Chart(today_df).mark_rule(color="#e74c3c", strokeWidth=2, strokeDash=[4, 3]).encode(x=alt.X("today:T"))
+    today_label = alt.Chart(today_df).mark_text(text="Today", color="#e74c3c", fontSize=11, fontWeight="bold", align="center", dy=-6).encode(x=alt.X("today:T"), y=alt.value(0))
 
-    today_label = alt.Chart(today_df).mark_text(
-        text="Today", color="#e74c3c", fontSize=11,
-        fontWeight="bold", align="center", dy=-6
-    ).encode(x=alt.X("today:T"), y=alt.value(0))
-
-    # Project header rows (greyed background bands)
     header_rows = [r for r in y_labels if r.startswith("▸")]
     if header_rows:
         hdr_df = pd.DataFrame({"y_label": header_rows})
-        header_bands = alt.Chart(hdr_df).mark_rect(
-            color="#ece9e4", height=28
-        ).encode(
-            y=alt.Y("y_label:N", sort=y_labels),
-        )
-        header_text = alt.Chart(hdr_df).mark_text(
-            align="left", dx=-220, fontSize=12,
-            fontWeight="bold", color="#2c3e50"
-        ).encode(
-            y=alt.Y("y_label:N", sort=y_labels),
-            text=alt.Text("y_label:N"),
-        )
+        header_bands = alt.Chart(hdr_df).mark_rect(color="#ece9e4", height=28).encode(y=alt.Y("y_label:N", sort=y_labels))
+        header_text = alt.Chart(hdr_df).mark_text(align="left", dx=-220, fontSize=12, fontWeight="bold", color="#2c3e50").encode(
+            y=alt.Y("y_label:N", sort=y_labels), text=alt.Text("y_label:N"))
         chart = alt.layer(header_bands, bars, bar_labels, today_line, today_label, header_text)
     else:
         chart = alt.layer(bars, bar_labels, today_line, today_label)
 
     n_rows = len(y_labels)
     chart_height = max(500, n_rows * 32 + 120)
-    chart = chart.properties(
-        width="container",
-        height=chart_height,
-        background="transparent",
-    ).configure_view(
-        strokeWidth=0,
-        fill="transparent",
-    ).configure_axis(
-        labelColor="#2c2c2c", titleColor="#2c2c2c",
-        domainColor="#c9c6c1", gridColor="#e3e1dd",
-        tickColor="#c9c6c1"
-    ).configure_legend(
-        labelColor="#2c2c2c", titleColor="#1a1a1a"
-    ).configure_title(
-        color="#1a1a1a"
-    )
+    chart = chart.properties(width="container", height=chart_height, background="transparent").configure_view(
+        strokeWidth=0, fill="transparent").configure_axis(
+        labelColor="#2c2c2c", titleColor="#2c2c2c", domainColor="#c9c6c1", gridColor="#e3e1dd", tickColor="#c9c6c1"
+    ).configure_legend(labelColor="#2c2c2c", titleColor="#1a1a1a").configure_title(color="#1a1a1a")
 
     st.altair_chart(chart, use_container_width=True)
 
@@ -713,217 +675,59 @@ def filter_projects(df, stage_filter, status_filter, search_text):
 
 st.set_page_config(page_title=PAGE_TITLE, layout="wide")
 
-# ── STACK Interiors brand theme ───────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
-/* Base typography */
 html, body, [class*="css"], .stApp, .stMarkdown, p, div, span, label, input, select, textarea, button {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
 }
-
-/* Preserve Material icon fonts (collapse arrows, etc.) */
-[data-testid="stIconMaterial"],
-span[class*="material-icons"],
-.material-icons, .material-icons-outlined, .material-symbols-outlined,
-[data-testid="stSidebarCollapseButton"] *,
-[data-testid="baseButton-headerNoPadding"] * {
+[data-testid="stIconMaterial"], span[class*="material-icons"], .material-icons, .material-icons-outlined,
+.material-symbols-outlined, [data-testid="stSidebarCollapseButton"] *, [data-testid="baseButton-headerNoPadding"] * {
     font-family: 'Material Symbols Outlined', 'Material Icons' !important;
 }
-
-/* App background — soft architectural off-white */
-.stApp {
-    background-color: #f6f5f3;
-}
-
-/* Main title */
-h1 {
-    color: #1a1a1a !important;
-    font-weight: 800 !important;
-    letter-spacing: -0.02em !important;
-}
-h2, h3 {
-    color: #1a1a1a !important;
-    font-weight: 700 !important;
-    letter-spacing: -0.01em !important;
-}
-h4, h5, h6 {
-    color: #2c2c2c !important;
-    font-weight: 600 !important;
-}
-
-/* Subheaders / section labels with STACK accent underline */
-.stApp [data-testid="stSubheader"], .stApp h3 {
-    border-bottom: 2px solid #1a1a1a;
-    padding-bottom: 6px;
-    display: inline-block;
-}
-
-/* Sidebar — charcoal/black with STACK yellow accents, fixed in place */
-[data-testid="stSidebar"] {
-    background-color: #1a1a1a;
-    position: sticky !important;
-    top: 0;
-    height: 100vh;
-    overflow-y: auto;
-}
-[data-testid="stSidebar"] * {
-    color: #f0f0f0 !important;
-}
-[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
-    color: #F2C94C !important;
-    border-bottom: 2px solid #F2C94C;
-    padding-bottom: 4px;
-    font-weight: 700 !important;
-}
-[data-testid="stSidebar"] [data-testid="stMetricValue"] {
-    color: #F2C94C !important;
-    font-weight: 700 !important;
-}
-[data-testid="stSidebar"] [data-testid="stMetricLabel"] {
-    color: #b0b0b0 !important;
-}
-[data-testid="stSidebar"] [data-testid="stMetricLabel"] * {
-    color: #b0b0b0 !important;
-}
-/* Sidebar input labels */
+.stApp { background-color: #f6f5f3; }
+h1 { color: #1a1a1a !important; font-weight: 800 !important; letter-spacing: -0.02em !important; }
+h2, h3 { color: #1a1a1a !important; font-weight: 700 !important; letter-spacing: -0.01em !important; }
+h4, h5, h6 { color: #2c2c2c !important; font-weight: 600 !important; }
+.stApp [data-testid="stSubheader"], .stApp h3 { border-bottom: 2px solid #1a1a1a; padding-bottom: 6px; display: inline-block; }
+[data-testid="stSidebar"] { background-color: #1a1a1a; position: sticky !important; top: 0; height: 100vh; overflow-y: auto; }
+[data-testid="stSidebar"] * { color: #f0f0f0 !important; }
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 { color: #F2C94C !important; border-bottom: 2px solid #F2C94C; padding-bottom: 4px; font-weight: 700 !important; }
+[data-testid="stSidebar"] [data-testid="stMetricValue"] { color: #F2C94C !important; font-weight: 700 !important; }
+[data-testid="stSidebar"] [data-testid="stMetricLabel"] { color: #b0b0b0 !important; }
+[data-testid="stSidebar"] [data-testid="stMetricLabel"] * { color: #b0b0b0 !important; }
 [data-testid="stSidebar"] label, [data-testid="stSidebar"] .stSelectbox label,
-[data-testid="stSidebar"] .stMultiSelect label, [data-testid="stSidebar"] .stTextInput label {
-    color: #e8e8e8 !important;
-    font-weight: 500 !important;
-}
-/* Sidebar select / input fields */
+[data-testid="stSidebar"] .stMultiSelect label, [data-testid="stSidebar"] .stTextInput label { color: #e8e8e8 !important; font-weight: 500 !important; }
 [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div,
 [data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] > div,
-[data-testid="stSidebar"] .stTextInput input,
-[data-testid="stSidebar"] .stNumberInput input {
-    background-color: #2c2c2c !important;
-    color: #f5f5f5 !important;
-    border: 1px solid #3d3d3d !important;
-}
+[data-testid="stSidebar"] .stTextInput input, [data-testid="stSidebar"] .stNumberInput input { background-color: #2c2c2c !important; color: #f5f5f5 !important; border: 1px solid #3d3d3d !important; }
 [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] svg,
-[data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] svg {
-    fill: #F2C94C !important;
-}
-/* Multiselect chips/tags */
-[data-testid="stSidebar"] span[data-baseweb="tag"] {
-    background-color: #F2C94C !important;
-    color: #1a1a1a !important;
-}
-[data-testid="stSidebar"] span[data-baseweb="tag"] * {
-    color: #1a1a1a !important;
-}
-/* Sidebar list text / writes */
-[data-testid="stSidebar"] .stMarkdown p, [data-testid="stSidebar"] .stMarkdown li {
-    color: #d8d8d8 !important;
-}
-/* Sidebar buttons — white default, yellow on hover */
-[data-testid="stSidebar"] .stButton > button {
-    background-color: #ffffff !important;
-    color: #1a1a1a !important;
-    border: none !important;
-    border-radius: 4px !important;
-    font-weight: 600 !important;
-    transition: all 0.15s ease !important;
-}
-[data-testid="stSidebar"] .stButton > button:hover {
-    background-color: #F2C94C !important;
-    color: #1a1a1a !important;
-}
-/* Sidebar dividers */
-[data-testid="stSidebar"] hr {
-    border-color: #3d3d3d !important;
-}
-
-/* Remove ability to collapse/hide the sidebar */
-[data-testid="stSidebarCollapseButton"],
-[data-testid="collapsedControl"],
-[data-testid="stSidebarCollapsedControl"],
-button[kind="headerNoPadding"] {
-    display: none !important;
-}
-
-/* Primary buttons in main area */
-.stButton > button {
-    border-radius: 4px !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.01em !important;
-    border: 1px solid #1a1a1a !important;
-    transition: all 0.15s ease !important;
-}
-.stButton > button:hover {
-    background-color: #1a1a1a !important;
-    color: #F2C94C !important;
-    border-color: #1a1a1a !important;
-}
-
-/* Tabs */
-.stTabs [data-baseweb="tab-list"] {
-    gap: 8px;
-    border-bottom: 1px solid #d8d6d2;
-}
-.stTabs [data-baseweb="tab"] {
-    font-weight: 600 !important;
-    color: #6b6b6b !important;
-    letter-spacing: 0.01em;
-}
-.stTabs [aria-selected="true"] {
-    color: #1a1a1a !important;
-    border-bottom-color: #1a1a1a !important;
-}
-
-/* Metrics in main area */
-[data-testid="stMetricValue"] {
-    color: #1a1a1a !important;
-    font-weight: 700 !important;
-}
-
-/* Dataframes — blend with theme */
-[data-testid="stDataFrame"] {
-    border-radius: 6px;
-    overflow: hidden;
-    border: 1px solid #e3e1dd;
-}
-[data-testid="stDataFrame"] [data-testid="stTable"],
-[data-testid="stDataFrame"] div[role="grid"] {
-    background-color: transparent !important;
-}
-/* Header row */
-[data-testid="stDataFrame"] [role="columnheader"] {
-    background-color: #1a1a1a !important;
-    color: #ffffff !important;
-    font-weight: 600 !important;
-}
-/* Data cells */
-[data-testid="stDataFrame"] [role="gridcell"] {
-    background-color: #ffffff !important;
-    color: #2c2c2c !important;
-}
-
-/* Download buttons */
-.stDownloadButton > button {
-    border-radius: 4px !important;
-    border: 1px solid #1a1a1a !important;
-    font-weight: 600 !important;
-}
-
-/* Horizontal rule softer */
-hr {
-    border-color: #d8d6d2 !important;
-}
-
-/* Inputs */
+[data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] svg { fill: #F2C94C !important; }
+[data-testid="stSidebar"] span[data-baseweb="tag"] { background-color: #F2C94C !important; color: #1a1a1a !important; }
+[data-testid="stSidebar"] span[data-baseweb="tag"] * { color: #1a1a1a !important; }
+[data-testid="stSidebar"] .stMarkdown p, [data-testid="stSidebar"] .stMarkdown li { color: #d8d8d8 !important; }
+[data-testid="stSidebar"] .stButton > button { background-color: #ffffff !important; color: #1a1a1a !important; border: none !important; border-radius: 4px !important; font-weight: 600 !important; transition: all 0.15s ease !important; }
+[data-testid="stSidebar"] .stButton > button:hover { background-color: #F2C94C !important; color: #1a1a1a !important; }
+[data-testid="stSidebar"] hr { border-color: #3d3d3d !important; }
+[data-testid="stSidebarCollapseButton"], [data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"], button[kind="headerNoPadding"] { display: none !important; }
+.stButton > button { border-radius: 4px !important; font-weight: 600 !important; letter-spacing: 0.01em !important; border: 1px solid #1a1a1a !important; transition: all 0.15s ease !important; }
+.stButton > button:hover { background-color: #1a1a1a !important; color: #F2C94C !important; border-color: #1a1a1a !important; }
+.stTabs [data-baseweb="tab-list"] { gap: 8px; border-bottom: 1px solid #d8d6d2; }
+.stTabs [data-baseweb="tab"] { font-weight: 600 !important; color: #6b6b6b !important; letter-spacing: 0.01em; }
+.stTabs [aria-selected="true"] { color: #1a1a1a !important; border-bottom-color: #1a1a1a !important; }
+[data-testid="stMetricValue"] { color: #1a1a1a !important; font-weight: 700 !important; }
+[data-testid="stDataFrame"] { border-radius: 6px; overflow: hidden; border: 1px solid #e3e1dd; }
+[data-testid="stDataFrame"] [role="columnheader"] { background-color: #1a1a1a !important; color: #ffffff !important; font-weight: 600 !important; }
+[data-testid="stDataFrame"] [role="gridcell"] { background-color: #ffffff !important; color: #2c2c2c !important; }
+.stDownloadButton > button { border-radius: 4px !important; border: 1px solid #1a1a1a !important; font-weight: 600 !important; }
+hr { border-color: #d8d6d2 !important; }
 .stTextInput input, .stNumberInput input, .stDateInput input,
-.stSelectbox div[data-baseweb="select"] > div,
-.stMultiSelect div[data-baseweb="select"] > div,
-.stTextArea textarea {
-    border-radius: 4px !important;
-}
+.stSelectbox div[data-baseweb="select"] > div, .stMultiSelect div[data-baseweb="select"] > div,
+.stTextArea textarea { border-radius: 4px !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# Branded header
 st.markdown("""
 <div style='display:flex;align-items:center;gap:16px;padding:8px 0 4px'>
     <div style='font-size:30px;font-weight:800;letter-spacing:0.18em;color:#1a1a1a'>STACK</div>
@@ -933,18 +737,25 @@ st.markdown("""
 """, unsafe_allow_html=True)
 st.markdown("<div style='color:#6b6b6b;font-size:14px;margin-bottom:8px'>Designing Workplace Brilliance — from concept through to code compliance.</div>", unsafe_allow_html=True)
 
+# ── session state ─────────────────────────────────────────────────────────────
+
 for key, loader in [("projects", load_projects), ("members_df", load_team_members), ("roles_df", load_roles),
                     ("tasks", load_tasks), ("timesheets", load_timesheets), ("estimates", load_estimates),
                     ("estimate_lines", load_estimate_lines), ("estimate_disb", load_estimate_disb),
                     ("companies", load_companies), ("contacts", load_contacts)]:
     if key not in st.session_state: st.session_state[key] = loader()
 
+# Invoices — not yet persisted to disk; initialise as empty DataFrames
+if "invoices" not in st.session_state:
+    st.session_state.invoices = pd.DataFrame(columns=INVOICE_COLUMNS)
+if "invoice_lines" not in st.session_state:
+    st.session_state.invoice_lines = pd.DataFrame(columns=INVOICE_LINE_COLUMNS)
+
 for key, default in [("message", ""), ("expanded_card", None), ("show_add_project", False),
                      ("show_team_management", False), ("selected_project", ""), ("selectbox_key", 0),
                      ("expanded_task", None), ("expanded_ts_entry", None), ("expanded_member", None),
                      ("active_estimate_id", None), ("active_company_id", None), ("active_contact_id", None),
-                     ("client_tab", "Companies"),
-                     ("current_page", "Project Tracker"),
+                     ("client_tab", "Companies"), ("current_page", "Project Tracker"),
                      ("wt_unlock_member", None), ("wt_unlock_week", None), ("wt_show_unlock", False)]:
     if key not in st.session_state: st.session_state[key] = default
 
@@ -955,7 +766,6 @@ company_names = st.session_state.companies["Name"].dropna().tolist()
 # ── sidebar ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    # STACK Interiors logo — fills the top band
     st.markdown(
         "<div style='text-align:center;padding:0 0 18px;margin:-8px -8px 8px'>"
         "<img src='https://www.stack.co.nz/assets/Uploads/Logo/logo.png' "
@@ -963,13 +773,10 @@ with st.sidebar:
         "</div>",
         unsafe_allow_html=True
     )
-    # Use current_page session state so we can programmatically switch pages
     page_index = PAGES.index(st.session_state.current_page) if st.session_state.current_page in PAGES else 0
     page = st.selectbox("Page", PAGES, index=page_index, key="page_selector")
-    # Keep current_page in sync when the user manually changes the selectbox
     if page != st.session_state.current_page:
-        st.session_state.current_page = page
-        st.rerun()
+        st.session_state.current_page = page; st.rerun()
 
     if page == "Project Tracker":
         st.header("Filters")
@@ -990,7 +797,6 @@ with st.sidebar:
         for s in TASK_STATUSES: st.write(f"- {s}: {st.session_state.tasks['Status'].value_counts().to_dict().get(s, 0)}")
     elif page == "Timesheets":
         st.header("Timesheets")
-        # Filter sidebar stats to selected member if one is chosen in weekly entry
         _wt_sel = st.session_state.get("wt_member_main", None)
         _ts_all = st.session_state.timesheets
         _ts_sidebar = _ts_all[_ts_all["Team member"] == _wt_sel] if _wt_sel and _wt_sel in member_names else _ts_all
@@ -1003,14 +809,10 @@ with st.sidebar:
         st.metric("Entries", len(_ts_sidebar))
         st.markdown("---")
         if _wt_sel and _wt_sel in member_names:
-            # Per-project breakdown for this member
             st.markdown("**By project**")
-            proj_hrs = _ts_sidebar.groupby("Project name").apply(
-                lambda g: round(g["Hours"].apply(parse_budget).sum(), 1)
-            ).sort_values(ascending=False)
+            proj_hrs = _ts_sidebar.groupby("Project name").apply(lambda g: round(g["Hours"].apply(parse_budget).sum(), 1)).sort_values(ascending=False)
             for pname, hrs in proj_hrs.items():
-                if hrs > 0:
-                    st.write(f"- {pname}: **{hrs}h**")
+                if hrs > 0: st.write(f"- {pname}: **{hrs}h**")
     elif page == "Fee Estimator":
         st.header("Estimates")
         if not st.session_state.estimates.empty:
@@ -1033,13 +835,11 @@ with st.sidebar:
 if page == "Project Tracker":
     filtered = filter_projects(st.session_state.projects, selected_stages, selected_status, search_query)
     display = filtered.copy()
-    # Sort by most recently updated first
     display["_sort"] = pd.to_datetime(display["Last updated"], errors="coerce")
     display = display.sort_values("_sort", ascending=False, na_position="last").drop(columns=["_sort"])
     display["Compliance %"] = display["Compliance checklist"].apply(compliance_progress)
     display["Milestone %"] = display["Milestones"].apply(milestone_progress)
     display["Budget"] = display["Budget"].apply(format_budget)
-    # Columns to show — drop Company ID
     show_cols = [c for c in COLUMNS if c != "Company ID"] + ["Compliance %", "Milestone %"]
     left, right = st.columns([2, 1])
     with left:
@@ -1092,10 +892,7 @@ if page == "Project Tracker":
     st.markdown("---")
     st.subheader("Project Timelines")
     view_tab1, view_tab2 = st.tabs(["📊 Gantt", "🟦 Cards"])
-
-    with view_tab1:
-        build_gantt_chart(filtered)
-
+    with view_tab1: build_gantt_chart(filtered)
     with view_tab2:
         st.caption("🔴 < 14 days  |  🟡 14–30 days  |  🟢 30+ days  |  ⚫ Not scheduled / passed")
         build_traffic_light_cards(filtered)
@@ -1214,13 +1011,12 @@ elif page == "Task Tracker":
                 st.session_state.tasks = add_or_update_task({"Task ID": "", "Project ID": pr.iloc[0]["Project ID"] if not pr.empty else "", "Project name": tp, "Task name": tn, "Team": tt, "Assigned to": "; ".join(ta), "Status": ts2, "Notes": tno}, st.session_state.tasks)
                 save_tasks(st.session_state.tasks); st.rerun()
 
-# ── TIMESHEETS (merged: weekly entry + log/history) ──────────────────────────
+# ── TIMESHEETS ────────────────────────────────────────────────────────────────
 
 elif page == "Timesheets":
     st.subheader("Timesheets")
     tab_weekly, tab_history = st.tabs(["📅 Weekly Entry", "📋 Log & History"])
 
-    # ── TAB 1: WEEKLY ENTRY ──────────────────────────────────────────────────
     with tab_weekly:
         if not member_names:
             st.warning("No team members set up yet. Add team members in the Project Tracker page first.")
@@ -1278,44 +1074,33 @@ elif page == "Timesheets":
                     if c2.form_submit_button("Cancel", use_container_width=True):
                         st.session_state[add_key] = False; st.rerun()
 
-            # ── Lock state (must be defined before grid renders) ──
             lock_key = f"wt_locked_{wt_member}_{week_start.strftime('%Y%m%d')}"
             is_locked = st.session_state.get(lock_key, False)
 
             st.markdown("---")
-            # Header row
             header_cols = st.columns([4, 1] + [1]*7 + [1])
             header_cols[0].markdown("**Job / Task**")
             for j, lbl in enumerate(day_labels):
                 header_cols[j+2].markdown(f"<div style='font-size:11px;font-weight:600;text-align:center'>{lbl}</div>", unsafe_allow_html=True)
             header_cols[-1].markdown("<div style='font-size:11px;font-weight:600;text-align:center'>Total</div>", unsafe_allow_html=True)
 
-            # Fixed rows that always appear for every member (in order)
             FIXED_ROWS = [
-                ("", "Admin", "Admin"),
-                ("", "WIP", "WIP"),
-                ("", "Design Team Meeting", "Design Team Meeting"),
-                ("", "Red Dot Projects", "Red Dot Projects"),
+                ("", "Admin", "Admin"), ("", "WIP", "WIP"),
+                ("", "Design Team Meeting", "Design Team Meeting"), ("", "Red Dot Projects", "Red Dot Projects"),
             ]
             for fixed in reversed(FIXED_ROWS):
                 if fixed not in rows:
                     st.session_state[wt_rows_key].insert(0, fixed)
-            # Re-sort so fixed rows always stay at top
             fixed_set = set(FIXED_ROWS)
             project_rows = [r for r in st.session_state[wt_rows_key] if r not in fixed_set]
             st.session_state[wt_rows_key] = FIXED_ROWS + project_rows
             rows = st.session_state[wt_rows_key]
 
-            # Build input grid from existing entries
             input_grid = {}
             for ri, (pid, pname, phase) in enumerate(rows):
                 input_grid[ri] = {}
                 for dk in day_keys:
-                    match = week_entries[
-                        (week_entries["Project name"] == pname) &
-                        (week_entries["Phase"] == phase) &
-                        (week_entries["Date"] == dk)
-                    ]
+                    match = week_entries[(week_entries["Project name"] == pname) & (week_entries["Phase"] == phase) & (week_entries["Date"] == dk)]
                     input_grid[ri][dk] = parse_budget(match.iloc[0]["Hours"]) if not match.empty else 0.0
 
             day_totals = {dk: 0.0 for dk in day_keys}
@@ -1327,30 +1112,17 @@ elif page == "Timesheets":
                 row_cols[0].markdown(
                     f"<div style='font-size:13px;font-weight:600;color:#2c3e50'>{pname}</div>"
                     f"<div style='font-size:11px;color:#888'>{phase if not is_fixed else ''}</div>",
-                    unsafe_allow_html=True
-                )
-                # Admin row can't be removed; others can
+                    unsafe_allow_html=True)
                 if not is_fixed:
                     if row_cols[1].button("✕", key=f"wt_rm_{ri}_{wt_member}_{week_start.strftime('%Y%m%d')}", disabled=is_locked):
                         st.session_state[wt_rows_key].pop(ri); st.rerun()
                 row_total = 0.0
                 for j, dk in enumerate(day_keys):
-                    val = row_cols[j+2].number_input(
-                        "h", min_value=0.0, max_value=24.0, step=0.25,
-                        value=input_grid[ri][dk],
-                        key=f"wt_cell_{ri}_{dk}_{wt_member}",
-                        label_visibility="collapsed", format="%.2f",
-                        disabled=is_locked
-                    )
-                    new_grid[ri][dk] = val
-                    row_total += val
-                    day_totals[dk] += val
-                row_cols[-1].markdown(
-                    f"<div style='text-align:center;font-weight:700;padding-top:6px'>{row_total:.2f}</div>",
-                    unsafe_allow_html=True
-                )
+                    val = row_cols[j+2].number_input("h", min_value=0.0, max_value=24.0, step=0.25, value=input_grid[ri][dk],
+                        key=f"wt_cell_{ri}_{dk}_{wt_member}", label_visibility="collapsed", format="%.2f", disabled=is_locked)
+                    new_grid[ri][dk] = val; row_total += val; day_totals[dk] += val
+                row_cols[-1].markdown(f"<div style='text-align:center;font-weight:700;padding-top:6px'>{row_total:.2f}</div>", unsafe_allow_html=True)
 
-            # Daily totals row
             st.markdown("---")
             tot_cols = st.columns([4, 1] + [1]*7 + [1])
             tot_cols[0].markdown("**Daily Total**")
@@ -1364,8 +1136,6 @@ elif page == "Timesheets":
 
             if is_locked:
                 st.warning(f"✅ Timesheet submitted and locked for **{wt_member}** — {week_start.strftime('%-d %b')} to {(week_start + pd.Timedelta(days=6)).strftime('%-d %b %Y')}")
-
-                # Unlock popup
                 if st.session_state.get("wt_show_unlock") and \
                    st.session_state.get("wt_unlock_member") == wt_member and \
                    st.session_state.get("wt_unlock_week") == week_start.strftime('%Y%m%d'):
@@ -1375,19 +1145,14 @@ elif page == "Timesheets":
                         u1, u2 = st.columns(2)
                         if u1.form_submit_button("Unlock", use_container_width=True):
                             if pw == TIMESHEET_LOCK_PASSWORD:
-                                st.session_state[lock_key] = False
-                                st.session_state.wt_show_unlock = False
-                                st.rerun()
-                            else:
-                                st.error("Incorrect password.")
+                                st.session_state[lock_key] = False; st.session_state.wt_show_unlock = False; st.rerun()
+                            else: st.error("Incorrect password.")
                         if u2.form_submit_button("Cancel", use_container_width=True):
                             st.session_state.wt_show_unlock = False; st.rerun()
                 else:
                     if st.button("🔓 Unlock to edit", key=f"show_unlock_{lock_key}", use_container_width=False):
-                        st.session_state.wt_show_unlock = True
-                        st.session_state.wt_unlock_member = wt_member
-                        st.session_state.wt_unlock_week = week_start.strftime('%Y%m%d')
-                        st.rerun()
+                        st.session_state.wt_show_unlock = True; st.session_state.wt_unlock_member = wt_member
+                        st.session_state.wt_unlock_week = week_start.strftime('%Y%m%d'); st.rerun()
             else:
                 btn1, btn2, btn3, _ = st.columns([2, 2, 2, 2])
                 if btn1.button("＋ Add a Task", use_container_width=True, key=f"wt_add_btn_{wt_member}"):
@@ -1402,23 +1167,14 @@ elif page == "Timesheets":
                             hrs = new_grid[ri].get(dk, 0.0)
                             if hrs > 0:
                                 is_fixed_row = (pid == "" and pname in {r[1] for r in FIXED_ROWS})
-                                new_entries.append({
-                                    "Entry ID": create_id(), "Project ID": pid,
-                                    "Project name": pname, "Phase": phase,
-                                    "Team member": wt_member, "Role": mem_role,
-                                    "Date": dk, "Hours": str(hrs),
-                                    "Rate": "0.0" if is_fixed_row else str(mem_rate),
-                                    "Notes": "", "Invoiced": "False"
-                                })
+                                new_entries.append({"Entry ID": create_id(), "Project ID": pid, "Project name": pname, "Phase": phase, "Team member": wt_member, "Role": mem_role, "Date": dk, "Hours": str(hrs), "Rate": "0.0" if is_fixed_row else str(mem_rate), "Notes": "", "Invoiced": "False"})
                     if new_entries:
                         ts_df = pd.concat([ts_df, pd.DataFrame(new_entries)], ignore_index=True)
                     st.session_state.timesheets = ts_df
                     save_timesheets(st.session_state.timesheets)
-                    st.success(f"Timesheet saved — {grand_total:.2f} hrs logged for {wt_member}.")
-                    st.rerun()
+                    st.success(f"Timesheet saved — {grand_total:.2f} hrs logged for {wt_member}."); st.rerun()
 
                 if btn3.button("📤 Submit Timesheet", use_container_width=True, key=f"wt_submit_{wt_member}"):
-                    # Auto-save then lock
                     ts_df = st.session_state.timesheets.copy()
                     ts_df = ts_df[~((ts_df["Team member"] == wt_member) & (ts_df["Date"].isin(day_keys)))]
                     new_entries = []
@@ -1427,33 +1183,21 @@ elif page == "Timesheets":
                             hrs = new_grid[ri].get(dk, 0.0)
                             if hrs > 0:
                                 is_fixed_row = (pid == "" and pname in {r[1] for r in FIXED_ROWS})
-                                new_entries.append({
-                                    "Entry ID": create_id(), "Project ID": pid,
-                                    "Project name": pname, "Phase": phase,
-                                    "Team member": wt_member, "Role": mem_role,
-                                    "Date": dk, "Hours": str(hrs),
-                                    "Rate": "0.0" if is_fixed_row else str(mem_rate),
-                                    "Notes": "", "Invoiced": "False"
-                                })
+                                new_entries.append({"Entry ID": create_id(), "Project ID": pid, "Project name": pname, "Phase": phase, "Team member": wt_member, "Role": mem_role, "Date": dk, "Hours": str(hrs), "Rate": "0.0" if is_fixed_row else str(mem_rate), "Notes": "", "Invoiced": "False"})
                     if new_entries:
                         ts_df = pd.concat([ts_df, pd.DataFrame(new_entries)], ignore_index=True)
                     st.session_state.timesheets = ts_df
                     save_timesheets(st.session_state.timesheets)
-                    st.session_state[lock_key] = True
-                    st.rerun()
+                    st.session_state[lock_key] = True; st.rerun()
 
-    # ── TAB 2: LOG & HISTORY ─────────────────────────────────────────────────
     with tab_history:
         ts_df = st.session_state.timesheets.copy()
-        # Sidebar filters still apply
         f1, f2 = st.columns(2)
         hist_proj = f1.selectbox("Project", ["All projects"] + st.session_state.projects["Project name"].dropna().unique().tolist(), key="ts_proj_filter")
         hist_member = f2.selectbox("Team member", ["All members"] + member_names, key="ts_member_filter")
         if hist_proj != "All projects": ts_df = ts_df[ts_df["Project name"] == hist_proj]
         if hist_member != "All members": ts_df = ts_df[ts_df["Team member"] == hist_member]
-
-        if ts_df.empty:
-            st.info("No timesheet entries yet.")
+        if ts_df.empty: st.info("No timesheet entries yet.")
         else:
             ts_df["Cost"] = ts_df.apply(lambda r: round(parse_budget(r["Hours"]) * (parse_budget(r["Rate"]) if r["Rate"] else role_rates.get(r["Role"], 0)), 2), axis=1)
             m1, m2, m3 = st.columns(3)
@@ -1471,7 +1215,6 @@ elif page == "Timesheets":
                     if st.button("🗑 Delete", key=f"del_ts_page_{eid}", use_container_width=True):
                         st.session_state.timesheets = st.session_state.timesheets[st.session_state.timesheets["Entry ID"] != eid]
                         save_timesheets(st.session_state.timesheets); st.rerun()
-
         st.markdown("---")
         st.subheader("Fee summary by project")
         if not st.session_state.projects.empty:
@@ -1603,7 +1346,7 @@ elif page == "Clients":
             tooltip=[alt.Tooltip("Status:N"), alt.Tooltip("Count:Q")],
         ).properties(width=260, height=260, title="Clients by status")
         text = alt.Chart(status_counts).mark_text(radius=130, fontSize=12, fontWeight="bold").encode(
-            theta=alt.Theta("Count:Q", stack=True), text=alt.Text("Count:Q"), color=alt.value("#333"), order=alt.Order("Count:Q")).properties()
+            theta=alt.Theta("Count:Q", stack=True), text=alt.Text("Count:Q"), color=alt.value("#333"), order=alt.Order("Count:Q"))
         chart = alt.layer(pie, text).resolve_scale(color="independent")
         col_chart, col_summary, _ = st.columns([1, 1, 2])
         with col_chart: st.altair_chart(chart, use_container_width=False)
@@ -1714,7 +1457,6 @@ elif page == "Clients":
                         for _, e in linked_est.iterrows():
                             t2 = estimate_totals(e["Estimate ID"], st.session_state.estimate_lines, st.session_state.estimate_disb, e.get("Margin %", "0"), role_rates)
                             st.markdown(f"**{e['Estimate name']}** — Total: ${t2['total']:,.2f}")
-
                 with lt3:
                     linked_contacts = st.session_state.contacts[st.session_state.contacts["Company ID"] == act_co].copy()
                     if linked_contacts.empty: st.caption("No linked contacts.")
