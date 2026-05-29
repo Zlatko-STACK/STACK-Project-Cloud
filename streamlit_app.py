@@ -1111,14 +1111,14 @@ if page == "Project Tracker":
                     save_projects(st.session_state.projects); st.session_state.message = f"Deleted '{selected}'."; st.session_state.selected_project = ""; st.session_state.selectbox_key += 1; st.rerun()
     st.markdown("---")
     st.subheader("Project Stages")
-    view_tab1, view_tab2 = st.tabs(["🟦 Cards", "📊 Gantt"])
+    view_tab1, view_tab2 = st.tabs(["📊 Gantt", "🟦 Cards"])
 
     with view_tab1:
-        st.caption("🔴 < 14 days  |  🟡 14–30 days  |  🟢 30+ days  |  ⚫ Not scheduled / passed")
-        build_traffic_light_cards(filtered)
+        build_gantt_chart(filtered)
 
     with view_tab2:
-        build_gantt_chart(filtered)
+        st.caption("🔴 < 14 days  |  🟡 14–30 days  |  🟢 30+ days  |  ⚫ Not scheduled / passed")
+        build_traffic_light_cards(filtered)
     st.markdown("---")
     col_add, col_team = st.columns(2)
     with col_add:
