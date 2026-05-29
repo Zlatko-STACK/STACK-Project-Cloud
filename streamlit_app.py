@@ -44,7 +44,7 @@ CLIENT_STATUSES = ["Active", "Prospect", "Lead", "Inactive"]
 CLIENT_STATUS_COLOURS = {"Active": "#2ecc71", "Prospect": "#3498db", "Lead": "#f39c12", "Inactive": "#aaaaaa"}
 INDUSTRIES = ["Architecture", "Interior Design", "Construction", "Engineering", "Property Development", "Retail", "Hospitality", "Education", "Healthcare", "Government", "Other"]
 REFERRAL_SOURCES = ["Word of mouth", "Website", "Social media", "Returning client", "Referral", "Directory", "Other"]
-DEFAULT_ROLES = {"Technician": 85.0, "Graduate": 95.0, "Intermediate Designer": 120.0, "Senior Designer": 150.0, "Project Manager": 140.0, "Site Manager": 130.0, "Director": 200.0}
+DEFAULT_ROLES = {"Technician": 85.0, "Graduate": 95.0, "Intermediate Designer": 120.0, "Senior Designer": 150.0, "Project Manager": 140.0, "Site Manager": 130.0, "Quantity Surveyor": 125.0, "Director": 200.0}
 
 PAGES = ["Project Tracker", "Task Tracker", "Timesheets", "Fee Estimator", "Clients", "Resourcing"]
 RESOURCE_ALLOC_FILE = Path(__file__).parent / "resource_allocations.csv"
@@ -347,9 +347,18 @@ def avail_color(hours, capacity=40.0):
     return ("#e74c3c", "#ffffff")                        # nearly full — red
 
 def member_week_planned(member, week_str, allocs_df):
-    if allocs_df.empty: return 0.0
+    if allocs_df is None or allocs_df.empty or "Projected hours" not in allocs_df.columns:
+        return 0.0
     rows = allocs_df[(allocs_df["Team member"] == member) & (allocs_df["Week start"] == week_str)]
-    return round(rows["Projected hours"].apply(parse_budget).sum(), 2)
+    if rows.empty:
+        return 0.0
+    vals = rows["Projected hours"]
+    if isinstance(vals, pd.DataFrame):   # guard against duplicate column labels
+        vals = vals.iloc[:, 0]
+    try:
+        return round(float(vals.apply(parse_budget).sum()), 2)
+    except (TypeError, ValueError):
+        return 0.0
 
 def member_week_actual(member, week_str, timesheets_df):
     """Sum of logged timesheet hours for a member within the week beginning week_str."""
@@ -1905,6 +1914,12 @@ elif page == "Resourcing":
             week_strs = [w["start_str"] for w in plan_weeks]
             pc[2].markdown(f"<div style='text-align:center;font-weight:600;padding-top:6px'>{plan_weeks[0]['date_label']} → {plan_weeks[-1]['date_label']}</div>", unsafe_allow_html=True)
 
+            _mrow = st.session_state.members_df[st.session_state.members_df["Team member"] == plan_member]
+            plan_member_role = _mrow.iloc[0]["Role"] if not _mrow.empty else ""
+            is_director = (plan_member_role == "Director")
+            if is_director:
+                st.info("🔒 Directors' hours are managed separately, so planning is locked for this person.")
+
             # Projects this member is allocated to: in the project's team, the PM, or already has hours booked
             assigned = set()
             for _, r in st.session_state.projects.iterrows():
@@ -1957,7 +1972,8 @@ elif page == "Resourcing":
                     ws = w["start_str"]
                     new_grid[ri][ws] = rc[j + 1].number_input(
                         "h", min_value=0.0, max_value=80.0, step=0.5, value=get_planned(pname, ws),
-                        key=f"res_cell_{ri}_{ws}_{plan_member}", label_visibility="collapsed", format="%.1f"
+                        key=f"res_cell_{ri}_{ws}_{plan_member}", label_visibility="collapsed", format="%.1f",
+                        disabled=is_director
                     )
 
             st.markdown("---")
@@ -1977,7 +1993,7 @@ elif page == "Resourcing":
 
             st.markdown("")
             save_col, _ = st.columns([2, 4])
-            if save_col.button("💾 Save Plan", use_container_width=True, key="res_save_plan"):
+            if save_col.button("💾 Save Plan", use_container_width=True, key="res_save_plan", disabled=is_director):
                 df = st.session_state.resource_allocs.copy()
                 df = df[~((df["Team member"] == plan_member) & (df["Week start"].isin(week_strs)))]
                 new_entries = []
