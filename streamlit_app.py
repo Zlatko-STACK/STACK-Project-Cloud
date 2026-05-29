@@ -347,13 +347,15 @@ def member_week_planned(member, week_str, allocs_df):
 
 def member_week_actual(member, week_str, timesheets_df):
     """Sum of logged timesheet hours for a member within the week beginning week_str."""
-    if timesheets_df.empty: return 0.0
-    ws = pd.Timestamp(week_str); we = ws + pd.Timedelta(days=6)
+    if timesheets_df is None or timesheets_df.empty: return 0.0
     rows = timesheets_df[timesheets_df["Team member"] == member].copy()
     if rows.empty: return 0.0
-    rows["_dt"] = pd.to_datetime(rows["Date"], errors="coerce")
-    mask = (rows["_dt"] >= ws) & (rows["_dt"] <= we)
-    return round(rows[mask]["Hours"].apply(parse_budget).sum(), 2)
+    ws = pd.Timestamp(week_str); we = ws + pd.Timedelta(days=6)
+    dt = pd.to_datetime(rows["Date"], errors="coerce")
+    mask = ((dt >= ws) & (dt <= we)).fillna(False).astype(bool)
+    sel = rows[mask]
+    if sel.empty: return 0.0
+    return round(sel["Hours"].apply(parse_budget).sum(), 2)
 
 def fmt_hours(x):
     return str(int(x)) if float(x) == int(x) else str(round(float(x), 1))
