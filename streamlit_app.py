@@ -598,7 +598,7 @@ def build_gantt_chart(df):
     if header_rows:
         hdr_df = pd.DataFrame({"y_label": header_rows})
         header_bands = alt.Chart(hdr_df).mark_rect(
-            color="#f4f6f8", height=28
+            color="#ece9e4", height=28
         ).encode(
             y=alt.Y("y_label:N", sort=y_labels),
         )
@@ -617,10 +617,18 @@ def build_gantt_chart(df):
     chart = chart.properties(
         width="container",
         height=max(300, n_rows * 28 + 60),
+        background="transparent",
     ).configure_view(
-        strokeWidth=0
+        strokeWidth=0,
+        fill="transparent",
     ).configure_axis(
-        labelColor="#555", domainColor="#ddd", gridColor="#f0f0f0"
+        labelColor="#2c2c2c", titleColor="#2c2c2c",
+        domainColor="#c9c6c1", gridColor="#e3e1dd",
+        tickColor="#c9c6c1"
+    ).configure_legend(
+        labelColor="#2c2c2c", titleColor="#1a1a1a"
+    ).configure_title(
+        color="#1a1a1a"
     )
 
     st.altair_chart(chart, use_container_width=True)
@@ -939,11 +947,11 @@ company_names = st.session_state.companies["Name"].dropna().tolist()
 # ── sidebar ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    # STACK Interiors logo
+    # STACK Interiors logo — fills the top band
     st.markdown(
-        "<div style='text-align:center;padding:8px 0 16px'>"
+        "<div style='text-align:center;padding:0 0 18px;margin:-8px -8px 8px'>"
         "<img src='https://www.stack.co.nz/assets/Uploads/Logo/logo.png' "
-        "style='max-width:160px;width:70%;filter:brightness(0) invert(1)' alt='STACK Interiors'/>"
+        "style='width:100%;display:block;filter:brightness(0) invert(1)' alt='STACK Interiors'/>"
         "</div>",
         unsafe_allow_html=True
     )
