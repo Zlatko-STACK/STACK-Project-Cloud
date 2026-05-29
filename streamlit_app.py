@@ -44,7 +44,7 @@ CLIENT_STATUSES = ["Active", "Prospect", "Lead", "Inactive"]
 CLIENT_STATUS_COLOURS = {"Active": "#2ecc71", "Prospect": "#3498db", "Lead": "#f39c12", "Inactive": "#aaaaaa"}
 INDUSTRIES = ["Architecture", "Interior Design", "Construction", "Engineering", "Property Development", "Retail", "Hospitality", "Education", "Healthcare", "Government", "Other"]
 REFERRAL_SOURCES = ["Word of mouth", "Website", "Social media", "Returning client", "Referral", "Directory", "Other"]
-DEFAULT_ROLES = {"Technician": 85.0, "Graduate": 95.0, "Intermediate Designer": 120.0, "Senior Designer": 150.0, "Director": 200.0}
+DEFAULT_ROLES = {"Technician": 85.0, "Graduate": 95.0, "Intermediate Designer": 120.0, "Senior Designer": 150.0, "Project Manager": 140.0, "Site Manager": 130.0, "Director": 200.0}
 
 PAGES = ["Project Tracker", "Task Tracker", "Timesheets", "Fee Estimator", "Clients", "Resourcing"]
 RESOURCE_ALLOC_FILE = Path(__file__).parent / "resource_allocations.csv"
@@ -177,6 +177,12 @@ def load_roles():
     if df.empty:
         df = pd.DataFrame([{"Role": r, "Hourly rate": str(rate)} for r, rate in DEFAULT_ROLES.items()])
         df.to_csv(ROLES_FILE, index=False)
+    else:
+        existing = set(df["Role"].tolist())
+        missing = [{"Role": r, "Hourly rate": str(rate)} for r, rate in DEFAULT_ROLES.items() if r not in existing]
+        if missing:
+            df = pd.concat([df, pd.DataFrame(missing)], ignore_index=True)
+            df.to_csv(ROLES_FILE, index=False)
     return df
 
 def save_roles(df): df.to_csv(ROLES_FILE, index=False)
@@ -1146,7 +1152,7 @@ if page == "Project Tracker":
         st.caption("🔴 < 14 days  |  🟡 14–30 days  |  🟢 30+ days  |  ⚫ Not scheduled / passed")
         build_traffic_light_cards(filtered)
     st.markdown("---")
-    col_add, col_team = st.columns(2)
+    col_add = st.container()
     with col_add:
         if st.button("▲ Close" if st.session_state.show_add_project else "＋ Add a new project", key="toggle_add_project", use_container_width=True):
             st.session_state.show_add_project = not st.session_state.show_add_project; st.rerun()
@@ -1171,44 +1177,6 @@ if page == "Project Tracker":
                         comp_row2 = st.session_state.companies[st.session_state.companies["Name"] == n_company]
                         st.session_state.projects = add_or_update_project({"Project ID": n_id, "Project name": n_name, "Client": n_company if n_company != "(none)" else "", "Company ID": comp_row2.iloc[0]["Company ID"] if not comp_row2.empty else "", "Location": n_location, "Project manager": n_manager, "Start date": n_start.strftime("%Y-%m-%d"), "Target completion": n_target.strftime("%Y-%m-%d"), "Stage": n_stage, "Status": n_status, "Budget": str(n_budget), "Fee": str(n_fee), "Phase fees": n_phase_fees, "Weekly hours allocated": str(n_weekly_hours), "Member hours allocation": normalize_member_hours(parse_member_hours(n_member_hours)), "Phase schedule": normalize_phase_schedule(n_phase_schedule), "Milestones": normalize_milestones(n_milestones), "Team members": normalize_team_members(n_members), "Compliance checklist": normalize_checklist(n_compliance), "Notes": n_notes}, st.session_state.projects)
                         save_projects(st.session_state.projects); st.session_state.message = f"Saved '{n_name}'."; st.session_state.show_add_project = False; st.rerun()
-    with col_team:
-        if st.button("▲ Close" if st.session_state.show_team_management else "👥 Team member management", key="toggle_team_management", use_container_width=True):
-            st.session_state.show_team_management = not st.session_state.show_team_management; st.rerun()
-        if st.session_state.show_team_management:
-            st.markdown("**Add a team member**")
-            with st.form("team_member_form"):
-                nm = st.text_input("Name"); nr = st.selectbox("Role", list(DEFAULT_ROLES.keys()))
-                if st.form_submit_button("Add team member", use_container_width=True):
-                    name = nm.strip()
-                    if not name: st.warning("Please enter a name.")
-                    elif name in st.session_state.members_df["Team member"].tolist(): st.warning("Already exists.")
-                    else:
-                        st.session_state.members_df = pd.concat([st.session_state.members_df, pd.DataFrame([{"Team member": name, "Role": nr}])], ignore_index=True)
-                        save_team_members_df(st.session_state.members_df); st.rerun()
-            if not st.session_state.members_df.empty:
-                st.markdown("**Team members**")
-                for _, mem in st.session_state.members_df.iterrows():
-                    mname, mrole = mem["Team member"], mem["Role"]; is_exp = st.session_state.expanded_member == mname
-                    mc1, mc2, mc3 = st.columns([3, 2, 1]); mc1.markdown(f"**{mname}**"); mc2.caption(mrole)
-                    if mc3.button("✏️" if not is_exp else "▲", key=f"edit_mem_{mname}"): st.session_state.expanded_member = None if is_exp else mname; st.rerun()
-                    if is_exp:
-                        with st.form(key=f"edit_member_form_{mname}"):
-                            new_name = st.text_input("Name", value=mname)
-                            new_role = st.selectbox("Role", list(DEFAULT_ROLES.keys()), index=list(DEFAULT_ROLES.keys()).index(mrole) if mrole in DEFAULT_ROLES else 0)
-                            s1, s2 = st.columns(2)
-                            if s1.form_submit_button("Save", use_container_width=True):
-                                midx = st.session_state.members_df[st.session_state.members_df["Team member"] == mname].index[0]
-                                st.session_state.members_df.at[midx, "Team member"] = new_name.strip(); st.session_state.members_df.at[midx, "Role"] = new_role
-                                save_team_members_df(st.session_state.members_df); st.session_state.expanded_member = None; st.rerun()
-                            if s2.form_submit_button("Delete", use_container_width=True):
-                                st.session_state.members_df = st.session_state.members_df[st.session_state.members_df["Team member"] != mname]
-                                save_team_members_df(st.session_state.members_df); st.session_state.expanded_member = None; st.rerun()
-            weekly_capacity = st.number_input("Weekly capacity (hrs)", min_value=1.0, value=40.0, step=1.0)
-            workload_df = compute_team_member_hours(st.session_state.projects, st.session_state.members_df, weekly_capacity)
-            if not workload_df.empty:
-                st.dataframe(workload_df.style.apply(style_workload_table, axis=1), use_container_width=True)
-                overloaded = workload_df[workload_df["Available hours"] < 10]
-                if not overloaded.empty: st.warning("Swamped: " + ", ".join(overloaded["Team member"].tolist()))
 
 # ── TASK TRACKER ──────────────────────────────────────────────────────────────
 
@@ -1899,8 +1867,8 @@ elif page == "Clients":
 elif page == "Resourcing":
     capacity = float(st.session_state.res_capacity)
     hol_set = holiday_dates_set(st.session_state.holidays)
-    tab_chart, tab_plan, tab_compare, tab_leave, tab_holidays = st.tabs(
-        ["📊 Availability Chart", "✏️ Plan Hours", "📈 Projected vs Actual", "🌴 Leave", "🗓 Holidays"]
+    tab_chart, tab_plan, tab_compare, tab_team, tab_leave, tab_holidays = st.tabs(
+        ["📊 Availability Chart", "✏️ Plan Hours", "📈 Projected vs Actual", "👥 Team", "🌴 Leave", "🗓 Holidays"]
     )
 
     # ── TAB 1: AVAILABILITY CHART ─────────────────────────────────────────────
@@ -1937,12 +1905,23 @@ elif page == "Resourcing":
             week_strs = [w["start_str"] for w in plan_weeks]
             pc[2].markdown(f"<div style='text-align:center;font-weight:600;padding-top:6px'>{plan_weeks[0]['date_label']} → {plan_weeks[-1]['date_label']}</div>", unsafe_allow_html=True)
 
-            active_projects = st.session_state.projects[st.session_state.projects["Status"] != "Complete"]
+            # Projects this member is allocated to: in the project's team, the PM, or already has hours booked
+            assigned = set()
+            for _, r in st.session_state.projects.iterrows():
+                pmembers = parse_team_members(r.get("Team members", ""))
+                if plan_member in pmembers or plan_member == (r.get("Project manager", "") or ""):
+                    assigned.add(r["Project name"])
+            if not st.session_state.resource_allocs.empty:
+                ma = st.session_state.resource_allocs[st.session_state.resource_allocs["Team member"] == plan_member]
+                assigned.update(ma["Project name"].dropna().tolist())
+
+            all_project_names = st.session_state.projects["Project name"].dropna().unique().tolist()
+            default_show = [p for p in all_project_names if p in assigned]
             proj_filter = st.multiselect(
-                "Projects to show",
-                st.session_state.projects["Project name"].dropna().unique().tolist(),
-                default=active_projects["Project name"].dropna().unique().tolist(),
-                key="res_proj_filter"
+                f"Projects for {plan_member} — defaults to their allocations; add more if needed",
+                all_project_names,
+                default=default_show,
+                key=f"res_proj_filter_{plan_member}"
             )
 
             FIXED_RES_ROWS = [("", "Admin"), ("", "WIP"), ("", "Design Team Meeting"), ("", "Red Dot Projects")]
@@ -2071,7 +2050,62 @@ elif page == "Resourcing":
             st.dataframe(cmp_df.style.map(style_variance, subset=["Variance"]), use_container_width=True, hide_index=True)
             st.caption("Variance = Actual − Projected. Positive (red) means more hours logged than planned; negative (green) means under plan.")
 
-    # ── TAB 4: LEAVE (per-person) ─────────────────────────────────────────────
+    # ── TAB 4: TEAM ───────────────────────────────────────────────────────────
+    with tab_team:
+        st.markdown("Manage team members and roles. A member's role sets their default hourly rate used in timesheets and fee estimates.")
+        tc1, tc2 = st.columns([1, 1])
+        with tc1:
+            st.markdown("**Add a team member**")
+            with st.form("team_member_form"):
+                nm = st.text_input("Name"); nr = st.selectbox("Role", list(DEFAULT_ROLES.keys()))
+                if st.form_submit_button("Add team member", use_container_width=True):
+                    name = nm.strip()
+                    if not name: st.warning("Please enter a name.")
+                    elif name in st.session_state.members_df["Team member"].tolist(): st.warning("Already exists.")
+                    else:
+                        st.session_state.members_df = pd.concat([st.session_state.members_df, pd.DataFrame([{"Team member": name, "Role": nr}])], ignore_index=True)
+                        save_team_members_df(st.session_state.members_df); st.rerun()
+        with tc2:
+            st.markdown("**Team members**")
+            if st.session_state.members_df.empty:
+                st.caption("No team members yet.")
+            else:
+                for _, mem in st.session_state.members_df.iterrows():
+                    mname, mrole = mem["Team member"], mem["Role"]; is_exp = st.session_state.expanded_member == mname
+                    mc1, mc2, mc3 = st.columns([3, 2, 1]); mc1.markdown(f"**{mname}**"); mc2.caption(mrole or "—")
+                    if mc3.button("✏️" if not is_exp else "▲", key=f"edit_mem_{mname}"): st.session_state.expanded_member = None if is_exp else mname; st.rerun()
+                    if is_exp:
+                        with st.form(key=f"edit_member_form_{mname}"):
+                            new_name = st.text_input("Name", value=mname)
+                            new_role = st.selectbox("Role", list(DEFAULT_ROLES.keys()), index=list(DEFAULT_ROLES.keys()).index(mrole) if mrole in DEFAULT_ROLES else 0)
+                            s1, s2 = st.columns(2)
+                            if s1.form_submit_button("Save", use_container_width=True):
+                                midx = st.session_state.members_df[st.session_state.members_df["Team member"] == mname].index[0]
+                                st.session_state.members_df.at[midx, "Team member"] = new_name.strip(); st.session_state.members_df.at[midx, "Role"] = new_role
+                                save_team_members_df(st.session_state.members_df); st.session_state.expanded_member = None; st.rerun()
+                            if s2.form_submit_button("Delete", use_container_width=True):
+                                st.session_state.members_df = st.session_state.members_df[st.session_state.members_df["Team member"] != mname]
+                                save_team_members_df(st.session_state.members_df); st.session_state.expanded_member = None; st.rerun()
+
+        st.markdown("---")
+        st.markdown("**Role rates** — default hourly rate per role")
+        with st.form("role_rates_form"):
+            rr = list(DEFAULT_ROLES.keys())
+            current_rates = get_role_rates(st.session_state.roles_df)
+            rate_inputs = {}
+            for chunk_start in range(0, len(rr), 4):
+                chunk = rr[chunk_start:chunk_start + 4]
+                rcols = st.columns(4)
+                for j, role in enumerate(chunk):
+                    rate_inputs[role] = rcols[j].number_input(
+                        role, min_value=0.0, step=5.0,
+                        value=float(current_rates.get(role, DEFAULT_ROLES.get(role, 0.0))),
+                        key=f"role_rate_{role}")
+            if st.form_submit_button("Save rates", use_container_width=True):
+                st.session_state.roles_df = pd.DataFrame([{"Role": r, "Hourly rate": str(v)} for r, v in rate_inputs.items()])
+                save_roles(st.session_state.roles_df); st.success("Role rates updated."); st.rerun()
+
+    # ── TAB 5: LEAVE (per-person) ─────────────────────────────────────────────
     with tab_leave:
         if not member_names:
             st.warning("No team members set up yet.")
