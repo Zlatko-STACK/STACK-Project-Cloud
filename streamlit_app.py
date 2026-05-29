@@ -18,8 +18,6 @@ ESTIMATE_LINES_FILE = Path(__file__).parent / "estimate_lines.csv"
 ESTIMATE_DISB_FILE = Path(__file__).parent / "estimate_disbursements.csv"
 COMPANIES_FILE = Path(__file__).parent / "companies.csv"
 CONTACTS_FILE = Path(__file__).parent / "contacts.csv"
-INVOICES_FILE = Path(__file__).parent / "invoices.csv"
-INVOICE_LINES_FILE = Path(__file__).parent / "invoice_lines.csv"
 
 STAGES = ["Concept", "Design Development", "Tender", "Construction", "Handover", "Code of Compliance"]
 STATUSES = ["On track", "At risk", "Delayed", "Complete"]
@@ -35,8 +33,6 @@ ESTIMATE_LINE_COLUMNS = ["Line ID", "Estimate ID", "Phase", "Role", "Hours", "Ra
 ESTIMATE_DISB_COLUMNS = ["Disb ID", "Estimate ID", "Description", "Type", "Value"]
 COMPANY_COLUMNS = ["Company ID", "Name", "Status", "Industry", "Website", "Phone", "Billing address", "Postal address", "Referral source", "Notes", "Tags", "Custom fields", "Created", "Last updated"]
 CONTACT_COLUMNS = ["Contact ID", "Company ID", "Company name", "First name", "Last name", "Title", "Email", "Phone", "Mobile", "Address", "Notes", "Tags", "Custom fields", "Is primary", "Created", "Last updated"]
-INVOICE_COLUMNS = ["Invoice ID", "Invoice number", "Company ID", "Client", "Project ID", "Project name", "Issue date", "Due date", "Status", "Notes", "Payment details", "Created", "Last updated"]
-INVOICE_LINE_COLUMNS = ["Line ID", "Invoice ID", "Description", "Quantity", "Unit price", "Amount", "Entry IDs"]
 TIMESHEET_LOCK_PASSWORD = "test"
 
 TASK_TEAMS = ["Design", "Project Management"]
@@ -44,13 +40,11 @@ TASK_STATUSES = ["Not started", "Ongoing", "Completed"]
 TASK_STATUS_COLOURS = {"Not started": "#aaaaaa", "Ongoing": "#f39c12", "Completed": "#2ecc71"}
 CLIENT_STATUSES = ["Active", "Prospect", "Lead", "Inactive"]
 CLIENT_STATUS_COLOURS = {"Active": "#2ecc71", "Prospect": "#3498db", "Lead": "#f39c12", "Inactive": "#aaaaaa"}
-INVOICE_STATUSES = ["Draft", "Approved", "Sent", "Paid", "Overdue"]
-INVOICE_STATUS_COLOURS = {"Draft": "#aaaaaa", "Approved": "#3498db", "Sent": "#f39c12", "Paid": "#2ecc71", "Overdue": "#e74c3c"}
 INDUSTRIES = ["Architecture", "Interior Design", "Construction", "Engineering", "Property Development", "Retail", "Hospitality", "Education", "Healthcare", "Government", "Other"]
 REFERRAL_SOURCES = ["Word of mouth", "Website", "Social media", "Returning client", "Referral", "Directory", "Other"]
 DEFAULT_ROLES = {"Technician": 85.0, "Graduate": 95.0, "Intermediate Designer": 120.0, "Senior Designer": 150.0, "Director": 200.0}
 
-PAGES = ["Project Tracker", "Task Tracker", "Timesheets", "Fee Estimator", "Invoices", "Clients"]
+PAGES = ["Project Tracker", "Task Tracker", "Timesheets", "Fee Estimator", "Clients"]
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -199,10 +193,6 @@ def load_companies(): return load_df(COMPANIES_FILE, COMPANY_COLUMNS)
 def save_companies(df): df.to_csv(COMPANIES_FILE, index=False)
 def load_contacts(): return load_df(CONTACTS_FILE, CONTACT_COLUMNS)
 def save_contacts(df): df.to_csv(CONTACTS_FILE, index=False)
-def load_invoices(): return load_df(INVOICES_FILE, INVOICE_COLUMNS)
-def save_invoices(df): df.to_csv(INVOICES_FILE, index=False)
-def load_invoice_lines(): return load_df(INVOICE_LINES_FILE, INVOICE_LINE_COLUMNS)
-def save_invoice_lines(df): df.to_csv(INVOICE_LINES_FILE, index=False)
 
 # ── mutators ──────────────────────────────────────────────────────────────────
 
@@ -545,9 +535,11 @@ def build_gantt_chart(df):
             y_labels.append(header)
             y_map[header] = header
             prev_proj = row["Project"]
-        phase_label = f"   {row['Phase']}"
+        # Make phase label unique per project to prevent merging
+        phase_label = f"{row['Project']} | {row['Phase']}"
         y_labels.append(phase_label)
-        display_rows.append({**row.to_dict(), "y_label": phase_label})
+        # Store display version with indentation
+        display_rows.append({**row.to_dict(), "y_label": phase_label, "y_display": f"   {row['Phase']}"})
 
     disp_df = pd.DataFrame(display_rows)
 
@@ -944,15 +936,14 @@ st.markdown("<div style='color:#6b6b6b;font-size:14px;margin-bottom:8px'>Designi
 for key, loader in [("projects", load_projects), ("members_df", load_team_members), ("roles_df", load_roles),
                     ("tasks", load_tasks), ("timesheets", load_timesheets), ("estimates", load_estimates),
                     ("estimate_lines", load_estimate_lines), ("estimate_disb", load_estimate_disb),
-                    ("companies", load_companies), ("contacts", load_contacts),
-                    ("invoices", load_invoices), ("invoice_lines", load_invoice_lines)]:
+                    ("companies", load_companies), ("contacts", load_contacts)]:
     if key not in st.session_state: st.session_state[key] = loader()
 
 for key, default in [("message", ""), ("expanded_card", None), ("show_add_project", False),
                      ("show_team_management", False), ("selected_project", ""), ("selectbox_key", 0),
                      ("expanded_task", None), ("expanded_ts_entry", None), ("expanded_member", None),
                      ("active_estimate_id", None), ("active_company_id", None), ("active_contact_id", None),
-                     ("active_invoice_id", None), ("client_tab", "Companies"),
+                     ("client_tab", "Companies"),
                      ("current_page", "Project Tracker"),
                      ("wt_unlock_member", None), ("wt_unlock_week", None), ("wt_show_unlock", False)]:
     if key not in st.session_state: st.session_state[key] = default
@@ -1028,18 +1019,6 @@ with st.sidebar:
                 if st.button(f"{e['Estimate name']}\n${t['total']:,.0f}", key=f"sidebar_est_{e['Estimate ID']}", use_container_width=True):
                     st.session_state.active_estimate_id = e["Estimate ID"]; st.rerun()
         if st.button("＋ New estimate", use_container_width=True): st.session_state.active_estimate_id = "new"; st.rerun()
-    elif page == "Invoices":
-        st.header("Invoices")
-        inv_df = st.session_state.invoices
-        total_inv = sum(invoice_total(r["Invoice ID"], st.session_state.invoice_lines) for _, r in inv_df.iterrows())
-        total_paid = sum(invoice_total(r["Invoice ID"], st.session_state.invoice_lines) for _, r in inv_df.iterrows() if r["Status"] == "Paid")
-        st.metric("Total invoiced", f"${total_inv:,.2f}")
-        st.metric("Total paid", f"${total_paid:,.2f}")
-        st.metric("Outstanding", f"${total_inv - total_paid:,.2f}")
-        st.markdown("---")
-        for s in INVOICE_STATUSES: st.write(f"- {s}: {inv_df['Status'].value_counts().to_dict().get(s, 0)}")
-        st.markdown("---")
-        if st.button("＋ New invoice", use_container_width=True): st.session_state.active_invoice_id = "new"; st.rerun()
     elif page == "Clients":
         st.header("Clients")
         st.metric("Companies", len(st.session_state.companies)); st.metric("Contacts", len(st.session_state.contacts))
@@ -1111,7 +1090,7 @@ if page == "Project Tracker":
                     st.session_state.projects = st.session_state.projects[st.session_state.projects["Project name"] != selected]
                     save_projects(st.session_state.projects); st.session_state.message = f"Deleted '{selected}'."; st.session_state.selected_project = ""; st.session_state.selectbox_key += 1; st.rerun()
     st.markdown("---")
-    st.subheader("Project Stages")
+    st.subheader("Project Timelines")
     view_tab1, view_tab2 = st.tabs(["📊 Gantt", "🟦 Cards"])
 
     with view_tab1:
@@ -1611,187 +1590,6 @@ elif page == "Fee Estimator":
     else:
         st.info("Select an estimate from the sidebar or create a new one.")
 
-# ── INVOICES ──────────────────────────────────────────────────────────────────
-
-elif page == "Invoices":
-    st.subheader("Invoices")
-    act_inv = st.session_state.active_invoice_id
-
-    if act_inv == "new":
-        st.markdown("### New invoice")
-        inv_comp_opts = ["(none)"] + company_names
-        # Pre-select company if navigated here from client record
-        preselect_company = st.session_state.get("new_invoice_preselect_company", "(none)")
-        preselect_idx = inv_comp_opts.index(preselect_company) if preselect_company in inv_comp_opts else 0
-        ni_comp = st.selectbox("Client (company)", inv_comp_opts, index=preselect_idx, key="ni_comp")
-        ni_proj_opts = ["(none)"] + st.session_state.projects["Project name"].dropna().unique().tolist()
-        ni_proj = st.selectbox("Linked project", ni_proj_opts, key="ni_proj")
-        ni_num = st.text_input("Invoice number", value=next_invoice_number(st.session_state.invoices), key="ni_num")
-        c1, c2 = st.columns(2)
-        ni_issue = c1.date_input("Issue date", value=pd.Timestamp.now().date(), key="ni_issue")
-        ni_due = c2.date_input("Due date", value=(pd.Timestamp.now() + pd.Timedelta(days=30)).date(), key="ni_due")
-        ni_notes = st.text_input("Notes", key="ni_notes")
-        ni_payment = st.text_area("Payment details", height=80, key="ni_payment")
-
-        proj_row_inv = st.session_state.projects[st.session_state.projects["Project name"] == ni_proj]
-        proj_id_inv = proj_row_inv.iloc[0]["Project ID"] if not proj_row_inv.empty and ni_proj != "(none)" else ""
-        uninvoiced = get_uninvoiced_entries(proj_id_inv, st.session_state.timesheets) if proj_id_inv else pd.DataFrame()
-
-        if "new_inv_lines" not in st.session_state:
-            st.session_state.new_inv_lines = []
-
-        if not uninvoiced.empty and st.button("📥 Import uninvoiced timesheet entries", key="import_ts"):
-            for _, e in uninvoiced.iterrows():
-                hrs = parse_budget(e["Hours"]); rate = parse_budget(e["Rate"]) if e["Rate"] else role_rates.get(e["Role"], 0.0)
-                amt = round(hrs * rate, 2)
-                st.session_state.new_inv_lines.append({"desc": f"{e['Team member']} — {e['Phase'] or 'General'} ({e['Date']})", "qty": hrs, "unit": rate, "amt": amt, "entry_ids": e["Entry ID"]})
-            st.rerun()
-
-        st.markdown("**Line items**")
-        updated_lines = []
-        for idx, line in enumerate(st.session_state.new_inv_lines):
-            lc1, lc2, lc3, lc4, lc5 = st.columns([4, 1, 1, 1, 1])
-            desc = lc1.text_input("Description", value=line["desc"], key=f"ni_desc_{idx}", label_visibility="collapsed", placeholder="Description")
-            qty = lc2.number_input("Qty", value=float(line["qty"]), min_value=0.0, step=0.5, key=f"ni_qty_{idx}", label_visibility="collapsed")
-            unit = lc3.number_input("Unit $", value=float(line["unit"]), min_value=0.0, step=1.0, key=f"ni_unit_{idx}", label_visibility="collapsed")
-            amt = round(qty * unit, 2); lc4.markdown(f"**${amt:,.2f}**")
-            remove = lc5.checkbox("✕", key=f"ni_remove_{idx}")
-            if not remove: updated_lines.append({"desc": desc, "qty": qty, "unit": unit, "amt": amt, "entry_ids": line.get("entry_ids", "")})
-        st.session_state.new_inv_lines = updated_lines
-
-        if st.button("＋ Add line item", key="add_inv_line"):
-            st.session_state.new_inv_lines.append({"desc": "", "qty": 1.0, "unit": 0.0, "amt": 0.0, "entry_ids": ""}); st.rerun()
-
-        total_preview = sum(l["amt"] for l in st.session_state.new_inv_lines)
-        st.markdown(f"**Total: ${total_preview:,.2f}**")
-
-        sc1, sc2 = st.columns(2)
-        if sc1.button("Save invoice", use_container_width=True, key="save_new_inv"):
-            if ni_comp == "(none)": st.warning("Please select a client.")
-            else:
-                comp_row_inv = st.session_state.companies[st.session_state.companies["Name"] == ni_comp]
-                comp_id_inv = comp_row_inv.iloc[0]["Company ID"] if not comp_row_inv.empty else ""
-                new_inv_id = create_id()
-                new_inv = {"Invoice ID": new_inv_id, "Invoice number": ni_num, "Company ID": comp_id_inv, "Client": ni_comp, "Project ID": proj_id_inv, "Project name": ni_proj if ni_proj != "(none)" else "", "Issue date": str(ni_issue), "Due date": str(ni_due), "Status": "Draft", "Notes": ni_notes, "Payment details": ni_payment, "Created": pd.Timestamp.now().strftime("%Y-%m-%d"), "Last updated": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")}
-                st.session_state.invoices = pd.concat([st.session_state.invoices, pd.DataFrame([new_inv])], ignore_index=True)
-                save_invoices(st.session_state.invoices)
-                for line in st.session_state.new_inv_lines:
-                    new_line = {"Line ID": create_id(), "Invoice ID": new_inv_id, "Description": line["desc"], "Quantity": str(line["qty"]), "Unit price": str(line["unit"]), "Amount": str(line["amt"]), "Entry IDs": line.get("entry_ids", "")}
-                    st.session_state.invoice_lines = pd.concat([st.session_state.invoice_lines, pd.DataFrame([new_line])], ignore_index=True)
-                save_invoice_lines(st.session_state.invoice_lines)
-                entry_ids = [l["entry_ids"] for l in st.session_state.new_inv_lines if l.get("entry_ids")]
-                for eid in entry_ids:
-                    mask = st.session_state.timesheets["Entry ID"] == eid
-                    if mask.any(): st.session_state.timesheets.loc[mask, "Invoiced"] = "True"
-                save_timesheets(st.session_state.timesheets)
-                del st.session_state["new_inv_lines"]
-                if "new_invoice_preselect_company" in st.session_state: del st.session_state["new_invoice_preselect_company"]
-                st.session_state.active_invoice_id = new_inv_id; st.rerun()
-        if sc2.button("Cancel", use_container_width=True, key="cancel_new_inv"):
-            if "new_inv_lines" in st.session_state: del st.session_state["new_inv_lines"]
-            if "new_invoice_preselect_company" in st.session_state: del st.session_state["new_invoice_preselect_company"]
-            st.session_state.active_invoice_id = None; st.rerun()
-
-    elif act_inv is not None:
-        inv_row_df = st.session_state.invoices[st.session_state.invoices["Invoice ID"] == act_inv]
-        if inv_row_df.empty: st.warning("Invoice not found.")
-        else:
-            inv = inv_row_df.iloc[0].to_dict()
-            inv_total = invoice_total(act_inv, st.session_state.invoice_lines)
-            sc = INVOICE_STATUS_COLOURS.get(inv["Status"], "#aaaaaa")
-            hc1, hc2, hc3 = st.columns([3, 1, 1])
-            hc1.markdown(f"## {inv['Invoice number']}")
-            hc1.markdown(f"<span style='background:{sc};color:white;padding:3px 10px;border-radius:12px;font-size:12px'>{inv['Status']}</span> &nbsp; <span style='color:#666;font-size:13px'>{inv['Client']} · {inv.get('Project name','') or 'No project'}</span>", unsafe_allow_html=True)
-            if hc2.button("✏️ Edit", key=f"edit_inv_{act_inv}", use_container_width=True): st.session_state[f"inv_edit_{act_inv}"] = not st.session_state.get(f"inv_edit_{act_inv}", False); st.rerun()
-            if hc3.button("✕ Close", key=f"close_inv_{act_inv}", use_container_width=True): st.session_state.active_invoice_id = None; st.rerun()
-
-            st.markdown("**Update status:**")
-            scols = st.columns(len(INVOICE_STATUSES))
-            for si, s in enumerate(INVOICE_STATUSES):
-                if scols[si].button(s, key=f"inv_status_{act_inv}_{s}", use_container_width=True):
-                    iidx = st.session_state.invoices[st.session_state.invoices["Invoice ID"] == act_inv].index[0]
-                    st.session_state.invoices.at[iidx, "Status"] = s; st.session_state.invoices.at[iidx, "Last updated"] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
-                    save_invoices(st.session_state.invoices); st.rerun()
-
-            st.markdown("---")
-            d1, d2, d3 = st.columns(3)
-            d1.markdown(f"**Issue date:** {inv['Issue date']}"); d2.markdown(f"**Due date:** {inv['Due date']}"); d3.metric("Total", f"${inv_total:,.2f}")
-            if inv.get("Notes"): st.info(inv["Notes"])
-
-            if st.session_state.get(f"inv_edit_{act_inv}", False):
-                with st.form(f"edit_inv_form_{act_inv}"):
-                    ei_num = st.text_input("Invoice number", value=inv["Invoice number"])
-                    ei_c1, ei_c2 = st.columns(2)
-                    ei_issue = ei_c1.date_input("Issue date", value=parse_date(inv["Issue date"], pd.Timestamp.now().date()))
-                    ei_due = ei_c2.date_input("Due date", value=parse_date(inv["Due date"], pd.Timestamp.now().date()))
-                    ei_notes = st.text_input("Notes", value=inv.get("Notes", ""))
-                    ei_payment = st.text_area("Payment details", value=inv.get("Payment details", ""), height=80)
-                    es1, es2 = st.columns(2)
-                    if es1.form_submit_button("Save", use_container_width=True):
-                        iidx = st.session_state.invoices[st.session_state.invoices["Invoice ID"] == act_inv].index[0]
-                        for k, v in [("Invoice number", ei_num), ("Issue date", str(ei_issue)), ("Due date", str(ei_due)), ("Notes", ei_notes), ("Payment details", ei_payment), ("Last updated", pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"))]:
-                            st.session_state.invoices.at[iidx, k] = v
-                        save_invoices(st.session_state.invoices); st.session_state[f"inv_edit_{act_inv}"] = False; st.rerun()
-                    if es2.form_submit_button("Delete invoice", use_container_width=True):
-                        st.session_state.invoices = st.session_state.invoices[st.session_state.invoices["Invoice ID"] != act_inv]
-                        st.session_state.invoice_lines = st.session_state.invoice_lines[st.session_state.invoice_lines["Invoice ID"] != act_inv]
-                        save_invoices(st.session_state.invoices); save_invoice_lines(st.session_state.invoice_lines)
-                        st.session_state.active_invoice_id = None; st.rerun()
-
-            st.markdown("### Line items")
-            inv_lines = st.session_state.invoice_lines[st.session_state.invoice_lines["Invoice ID"] == act_inv]
-            if inv_lines.empty: st.caption("No line items.")
-            else:
-                for _, line in inv_lines.iterrows():
-                    lid = line["Line ID"]
-                    lc1, lc2, lc3, lc4, lc5 = st.columns([4, 1, 1, 1, 1])
-                    lc1.markdown(line["Description"]); lc2.markdown(f"{line['Quantity']}"); lc3.markdown(f"${parse_budget(line['Unit price']):,.2f}"); lc4.markdown(f"**${parse_budget(line['Amount']):,.2f}**")
-                    if lc5.button("🗑", key=f"del_inv_line_{lid}"):
-                        st.session_state.invoice_lines = st.session_state.invoice_lines[st.session_state.invoice_lines["Line ID"] != lid]
-                        save_invoice_lines(st.session_state.invoice_lines); st.rerun()
-
-            with st.form(f"add_inv_line_{act_inv}"):
-                al1, al2, al3, al4 = st.columns([4, 1, 1, 1])
-                al_desc = al1.text_input("Description", label_visibility="collapsed", placeholder="Description")
-                al_qty = al2.number_input("Qty", min_value=0.0, step=0.5, label_visibility="collapsed")
-                al_unit = al3.number_input("Unit $", min_value=0.0, step=1.0, label_visibility="collapsed")
-                al4.markdown(f"**${al_qty * al_unit:,.2f}**")
-                if st.form_submit_button("＋ Add line item", use_container_width=True):
-                    if al_desc:
-                        st.session_state.invoice_lines = pd.concat([st.session_state.invoice_lines, pd.DataFrame([{"Line ID": create_id(), "Invoice ID": act_inv, "Description": al_desc, "Quantity": str(al_qty), "Unit price": str(al_unit), "Amount": str(round(al_qty * al_unit, 2)), "Entry IDs": ""}])], ignore_index=True)
-                        save_invoice_lines(st.session_state.invoice_lines); st.rerun()
-
-            st.markdown("---")
-            inv_fresh = st.session_state.invoices[st.session_state.invoices["Invoice ID"] == act_inv].iloc[0].to_dict()
-            inv_html = generate_invoice_html(inv_fresh, st.session_state.invoice_lines, inv_fresh.get("Client", ""))
-            st.download_button("⬇️ Download invoice as HTML (print to PDF)", data=inv_html.encode("utf-8"), file_name=f"invoice_{inv_fresh['Invoice number']}.html", mime="text/html", use_container_width=True)
-
-    else:
-        inv_df = st.session_state.invoices.copy()
-        if inv_df.empty: st.info("No invoices yet. Use '＋ New invoice' in the sidebar.")
-        else:
-            f1, f2 = st.columns(2)
-            filter_client = f1.selectbox("Filter by client", ["All"] + company_names, key="inv_filter_client")
-            filter_status = f2.selectbox("Filter by status", ["All"] + INVOICE_STATUSES, key="inv_filter_status")
-            if filter_client != "All": inv_df = inv_df[inv_df["Client"] == filter_client]
-            if filter_status != "All": inv_df = inv_df[inv_df["Status"] == filter_status]
-
-            cols = st.columns(3)
-            for i, (_, inv) in enumerate(inv_df.sort_values("Issue date", ascending=False).iterrows()):
-                iid = inv["Invoice ID"]; sc = INVOICE_STATUS_COLOURS.get(inv["Status"], "#aaaaaa")
-                inv_total = invoice_total(iid, st.session_state.invoice_lines)
-                with cols[i % 3]:
-                    st.markdown(
-                        f"<div style='border:1px solid #e3e1dd;border-radius:6px;padding:14px 16px;margin-bottom:6px;background:#ffffff;border-left:4px solid {sc};box-shadow:0 1px 3px rgba(0,0,0,0.04)'>"
-                        f"<div style='font-weight:700;font-size:15px;margin-bottom:2px;color:#1a1a1a'>{inv['Invoice number']}</div>"
-                        f"<div style='font-size:12px;color:#6b6b6b;margin-bottom:4px'>{inv['Client']} · {inv.get('Project name','') or 'No project'}</div>"
-                        f"<div style='display:inline-block;padding:2px 10px;border-radius:12px;background:{sc};color:white;font-size:11px;font-weight:600;margin-bottom:6px'>{inv['Status']}</div>"
-                        f"<div style='font-size:13px;font-weight:700;color:#1a1a1a'>${inv_total:,.2f}</div>"
-                        f"<div style='font-size:11px;color:#888'>Issued: {inv['Issue date']} · Due: {inv['Due date']}</div>"
-                        "</div>", unsafe_allow_html=True)
-                    if st.button("Open", key=f"open_inv_{iid}", use_container_width=True):
-                        st.session_state.active_invoice_id = iid; st.rerun()
-
 # ── CLIENTS ───────────────────────────────────────────────────────────────────
 
 elif page == "Clients":
@@ -1903,7 +1701,7 @@ elif page == "Clients":
                             if cf.get("label"): st.markdown(f"- **{cf['label']}:** {cf.get('value','')}")
 
                 st.markdown("---")
-                lt1, lt2, lt3, lt4 = st.tabs(["📁 Projects", "📋 Estimates", "💰 Billing", "👤 Contacts"])
+                lt1, lt2, lt3 = st.tabs(["📁 Projects", "📋 Estimates", "👤 Contacts"])
                 with lt1:
                     linked_proj = st.session_state.projects[st.session_state.projects["Company ID"] == act_co]
                     if linked_proj.empty: st.caption("No linked projects.")
@@ -1918,38 +1716,6 @@ elif page == "Clients":
                             st.markdown(f"**{e['Estimate name']}** — Total: ${t2['total']:,.2f}")
 
                 with lt3:
-                    billing = client_billing_summary(act_co, st.session_state.invoices, st.session_state.invoice_lines)
-                    bm1, bm2, bm3 = st.columns(3)
-                    bm1.metric("Total invoiced", f"${billing['total_invoiced']:,.2f}")
-                    bm2.metric("Paid", f"${billing['paid']:,.2f}")
-                    bm3.metric("Outstanding", f"${billing['outstanding']:,.2f}")
-                    st.markdown("---")
-                    linked_inv = st.session_state.invoices[st.session_state.invoices["Company ID"] == act_co]
-                    if linked_inv.empty: st.caption("No invoices for this client.")
-                    else:
-                        for _, inv in linked_inv.sort_values("Issue date", ascending=False).iterrows():
-                            iid = inv["Invoice ID"]; isc = INVOICE_STATUS_COLOURS.get(inv["Status"], "#aaaaaa")
-                            inv_amt = invoice_total(iid, st.session_state.invoice_lines)
-                            ic1, ic2, ic3, ic4 = st.columns([2, 2, 2, 1])
-                            ic1.markdown(f"**{inv['Invoice number']}**")
-                            ic2.markdown(f"<span style='background:{isc};color:white;padding:2px 8px;border-radius:8px;font-size:11px'>{inv['Status']}</span>", unsafe_allow_html=True)
-                            ic3.markdown(f"**${inv_amt:,.2f}** · Due {inv['Due date']}")
-                            if ic4.button("Open", key=f"co_inv_open_{iid}"):
-                                st.session_state.active_invoice_id = iid
-                                st.session_state.active_company_id = None
-                                st.session_state.current_page = "Invoices"
-                                st.rerun()
-                            st.divider()
-                    # ── KEY FIX: navigate to Invoices page with company pre-selected ──
-                    if st.button("＋ Create invoice for this client", key=f"co_new_inv_{act_co}", use_container_width=True):
-                        co_name = st.session_state.companies[st.session_state.companies["Company ID"] == act_co].iloc[0]["Name"]
-                        st.session_state.new_invoice_preselect_company = co_name
-                        st.session_state.active_invoice_id = "new"
-                        st.session_state.active_company_id = None
-                        st.session_state.current_page = "Invoices"
-                        st.rerun()
-
-                with lt4:
                     linked_contacts = st.session_state.contacts[st.session_state.contacts["Company ID"] == act_co].copy()
                     if linked_contacts.empty: st.caption("No linked contacts.")
                     else:
