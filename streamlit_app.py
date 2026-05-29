@@ -939,11 +939,11 @@ company_names = st.session_state.companies["Name"].dropna().tolist()
 # ── sidebar ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    # STACK Interiors logo — fills the top band
+    # STACK Interiors logo
     st.markdown(
-        "<div style='text-align:center;padding:0 0 18px;margin:-8px -8px 8px'>"
+        "<div style='text-align:center;padding:8px 0 16px'>"
         "<img src='https://www.stack.co.nz/assets/Uploads/Logo/logo.png' "
-        "style='width:100%;display:block;filter:brightness(0) invert(1)' alt='STACK Interiors'/>"
+        "style='max-width:160px;width:70%;filter:brightness(0) invert(1)' alt='STACK Interiors'/>"
         "</div>",
         unsafe_allow_html=True
     )
