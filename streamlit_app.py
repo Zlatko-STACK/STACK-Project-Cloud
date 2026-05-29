@@ -46,7 +46,14 @@ INDUSTRIES = ["Architecture", "Interior Design", "Construction", "Engineering", 
 REFERRAL_SOURCES = ["Word of mouth", "Website", "Social media", "Returning client", "Referral", "Directory", "Other"]
 DEFAULT_ROLES = {"Technician": 85.0, "Graduate": 95.0, "Intermediate Designer": 120.0, "Senior Designer": 150.0, "Director": 200.0}
 
-PAGES = ["Project Tracker", "Task Tracker", "Timesheets", "Fee Estimator", "Clients"]
+PAGES = ["Project Tracker", "Task Tracker", "Timesheets", "Fee Estimator", "Clients", "Resourcing"]
+RESOURCE_ALLOC_FILE = Path(__file__).parent / "resource_allocations.csv"
+RESOURCE_ALLOC_COLUMNS = ["Alloc ID", "Team member", "Project ID", "Project name", "Week start", "Projected hours", "Last updated"]
+HOLIDAYS_FILE = Path(__file__).parent / "holidays.csv"
+HOLIDAY_COLUMNS = ["Date", "Name"]
+LEAVE_FILE = Path(__file__).parent / "leave.csv"
+LEAVE_COLUMNS = ["Leave ID", "Team member", "Date", "Type", "Notes"]
+LEAVE_TYPES = ["Annual leave", "Sick leave", "Unpaid leave", "Public holiday (personal)", "Other"]
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -207,6 +214,218 @@ def save_companies(df): df.to_csv(COMPANIES_FILE, index=False)
 
 def load_contacts(): return load_df(CONTACTS_FILE, CONTACT_COLUMNS)
 def save_contacts(df): df.to_csv(CONTACTS_FILE, index=False)
+
+def load_resource_allocs(): return load_df(RESOURCE_ALLOC_FILE, RESOURCE_ALLOC_COLUMNS)
+def save_resource_allocs(df): df.to_csv(RESOURCE_ALLOC_FILE, index=False)
+
+def load_holidays(): return load_df(HOLIDAYS_FILE, HOLIDAY_COLUMNS)
+def save_holidays(df): df.to_csv(HOLIDAYS_FILE, index=False)
+
+def load_leave(): return load_df(LEAVE_FILE, LEAVE_COLUMNS)
+def save_leave(df): df.to_csv(LEAVE_FILE, index=False)
+
+def holiday_dates_set(holidays_df):
+    out = set()
+    if holidays_df.empty: return out
+    for _, r in holidays_df.iterrows():
+        d = pd.to_datetime(r["Date"], errors="coerce")
+        if not pd.isna(d): out.add(d.date())
+    return out
+
+def leave_dates_for_member(member, leave_df):
+    out = set()
+    if leave_df.empty: return out
+    for _, r in leave_df[leave_df["Team member"] == member].iterrows():
+        d = pd.to_datetime(r["Date"], errors="coerce")
+        if not pd.isna(d): out.add(d.date())
+    return out
+
+# ── public holiday generation (NZ) ────────────────────────────────────────────
+
+def easter_sunday(year):
+    """Anonymous Gregorian algorithm (Computus)."""
+    a = year % 19; b = year // 100; c = year % 100; d = b // 4; e = b % 4
+    f = (b + 8) // 25; g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30; i = c // 4; k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7; m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31; day = ((h + l - 7 * m + 114) % 31) + 1
+    return pd.Timestamp(year=year, month=month, day=day)
+
+def nth_weekday(year, month, weekday, n):
+    """nth occurrence of a weekday (0=Mon) in a month."""
+    d = pd.Timestamp(year=year, month=month, day=1)
+    first = d + pd.Timedelta(days=(weekday - d.weekday()) % 7)
+    return first + pd.Timedelta(weeks=n - 1)
+
+# Official NZ Matariki public holiday dates (government-set)
+MATARIKI_DATES = {2022: "06-24", 2023: "07-14", 2024: "06-28", 2025: "06-20",
+                  2026: "07-10", 2027: "06-25", 2028: "07-14", 2029: "07-06", 2030: "06-21"}
+
+def nz_public_holidays(year):
+    """Return a list of (date_str, name) for NZ public holidays in the given year."""
+    easter = easter_sunday(year)
+    good_friday = easter - pd.Timedelta(days=2)
+    easter_monday = easter + pd.Timedelta(days=1)
+    kings_birthday = nth_weekday(year, 6, 0, 1)   # 1st Monday June
+    labour_day = nth_weekday(year, 10, 0, 4)      # 4th Monday October
+    hols = [
+        (f"{year}-01-01", "New Year's Day"),
+        (f"{year}-01-02", "Day after New Year's Day"),
+        (f"{year}-02-06", "Waitangi Day"),
+        (good_friday.strftime("%Y-%m-%d"), "Good Friday"),
+        (easter_monday.strftime("%Y-%m-%d"), "Easter Monday"),
+        (f"{year}-04-25", "ANZAC Day"),
+        (kings_birthday.strftime("%Y-%m-%d"), "King's Birthday"),
+        (labour_day.strftime("%Y-%m-%d"), "Labour Day"),
+        (f"{year}-12-25", "Christmas Day"),
+        (f"{year}-12-26", "Boxing Day"),
+    ]
+    if year in MATARIKI_DATES:
+        hols.append((f"{year}-{MATARIKI_DATES[year]}", "Matariki"))
+    return sorted(hols, key=lambda x: x[0])
+
+# ── resourcing helpers ────────────────────────────────────────────────────────
+
+def week_workdays(week_start, holiday_dates):
+    """Count Mon–Fri days in the week that aren't public holidays."""
+    count = 0
+    for i in range(5):
+        d = (week_start + pd.Timedelta(days=i)).date()
+        if d not in holiday_dates: count += 1
+    return count
+
+def get_week_starts(offset=0, count=17, holiday_dates=None):
+    """Return a list of week-info dicts, each starting on a Monday.
+    Months are grouped by the Wednesday (midpoint) of the week to match Caperity."""
+    holiday_dates = holiday_dates or set()
+    today = pd.Timestamp.now().normalize()
+    monday = today - pd.Timedelta(days=today.weekday())
+    weeks = []
+    for i in range(count):
+        ws = monday + pd.Timedelta(weeks=(offset + i))
+        wed = ws + pd.Timedelta(days=2)
+        weeks.append({
+            "start": ws,
+            "start_str": ws.strftime("%Y-%m-%d"),
+            "label": f"W{ws.isocalendar()[1]}",
+            "date_label": ws.strftime("%d/%m/%Y"),
+            "month": wed.strftime("%B %Y"),
+            "workdays": week_workdays(ws, holiday_dates),
+            "is_current": (ws == monday),
+        })
+    return weeks
+
+def member_week_leave_days(member, week_start, leave_dates, holiday_dates):
+    """Weekdays in the week the member is on personal leave (not already public holidays)."""
+    count = 0
+    for i in range(5):
+        d = (week_start + pd.Timedelta(days=i)).date()
+        if d in holiday_dates: continue
+        if d in leave_dates: count += 1
+    return count
+
+def member_week_capacity(week, base_capacity, member_leave_dates, holiday_dates):
+    """A member's capacity for a week = base × (company workdays − their leave days) / 5."""
+    leave_days = member_week_leave_days(None, week["start"], member_leave_dates, holiday_dates)
+    eff_workdays = max(0, week["workdays"] - leave_days)
+    return base_capacity * (eff_workdays / 5.0), eff_workdays, leave_days
+
+def avail_color(hours, capacity=40.0):
+    """Traffic-light colour for remaining available hours, relative to that week's capacity."""
+    if hours < 0:        return ("#c0392b", "#ffffff")   # overallocated — dark red
+    if hours == 0:       return ("#f4f6f7", "#888888")   # exactly full — light grey
+    pct = (hours / capacity) if capacity > 0 else 0
+    if pct > 0.75:       return ("#27ae60", "#ffffff")   # plenty free — dark green
+    if pct > 0.5:        return ("#52be80", "#ffffff")   # comfortable — green
+    if pct > 0.25:       return ("#f39c12", "#ffffff")   # getting full — amber
+    return ("#e74c3c", "#ffffff")                        # nearly full — red
+
+def member_week_planned(member, week_str, allocs_df):
+    if allocs_df.empty: return 0.0
+    rows = allocs_df[(allocs_df["Team member"] == member) & (allocs_df["Week start"] == week_str)]
+    return round(rows["Projected hours"].apply(parse_budget).sum(), 2)
+
+def member_week_actual(member, week_str, timesheets_df):
+    """Sum of logged timesheet hours for a member within the week beginning week_str."""
+    if timesheets_df.empty: return 0.0
+    ws = pd.Timestamp(week_str); we = ws + pd.Timedelta(days=6)
+    rows = timesheets_df[timesheets_df["Team member"] == member].copy()
+    if rows.empty: return 0.0
+    rows["_dt"] = pd.to_datetime(rows["Date"], errors="coerce")
+    mask = (rows["_dt"] >= ws) & (rows["_dt"] <= we)
+    return round(rows[mask]["Hours"].apply(parse_budget).sum(), 2)
+
+def fmt_hours(x):
+    return str(int(x)) if float(x) == int(x) else str(round(float(x), 1))
+
+def build_availability_table_html(member_names, weeks, allocs_df, leave_df, holiday_dates, capacity=40.0):
+    if not member_names: return "<p style='color:#888'>No team members set up yet.</p>"
+    if not weeks: return "<p style='color:#888'>No weeks to display.</p>"
+
+    months = {}
+    for w in weeks:
+        months[w["month"]] = months.get(w["month"], 0) + 1
+
+    th = "color:#fff;padding:6px 8px;text-align:center;border:1px solid #3d3d3d;white-space:nowrap;font-weight:600"
+    dark = "background:#2c2c2c"
+    cur = "background:#e8a87c;color:#1a1a1a"
+    name_td = "padding:6px 10px;font-weight:500;color:#1a1a1a;background:#ffffff;border:1px solid #e0e0e0;white-space:nowrap;text-align:left"
+
+    html = "<div style='overflow-x:auto;border:1px solid #d8d6d2;border-radius:6px'>"
+    html += "<table style='border-collapse:collapse;font-family:Inter,sans-serif;font-size:12px;min-width:100%'>"
+
+    # Month header row
+    html += "<tr>"
+    html += f"<th style='{th};{dark};min-width:140px;text-align:left'>Resource Availability</th>"
+    for month, cnt in months.items():
+        html += f"<th colspan='{cnt}' style='{th};{dark}'>{month}</th>"
+    html += "</tr>"
+
+    # Week label row
+    html += "<tr>"
+    html += f"<th style='{th};background:#3d3d3d'></th>"
+    for w in weeks:
+        style = cur if w["is_current"] else dark
+        html += f"<th style='{th};{style};min-width:64px'>{w['label']}</th>"
+    html += "</tr>"
+
+    # Date row
+    html += "<tr>"
+    html += f"<th style='{th};background:#3d3d3d'></th>"
+    for w in weeks:
+        style = cur if w["is_current"] else dark
+        html += f"<th style='{th};{style};font-weight:400;font-size:10px'>{w['date_label']}</th>"
+    html += "</tr>"
+
+    # Workdays row
+    html += "<tr>"
+    html += f"<td style='{name_td};color:#888;font-size:11px;background:#f4f4f4'># workdays</td>"
+    for w in weeks:
+        flag = "background:#fde7d7" if w["workdays"] < 5 else "background:#f4f4f4"
+        html += f"<td style='padding:4px;text-align:center;border:1px solid #e0e0e0;color:#888;font-size:11px;{flag}'>{w['workdays']}</td>"
+    html += "</tr>"
+
+    # Spacer
+    html += f"<tr><td colspan='{len(weeks)+1}' style='height:10px;background:#f6f5f3;border:none'></td></tr>"
+
+    # Member rows
+    for member in member_names:
+        m_leave = leave_dates_for_member(member, leave_df)
+        disp = member if len(member) <= 20 else member[:18] + "…"
+        html += "<tr>"
+        html += f"<td style='{name_td}'>{disp}</td>"
+        for w in weeks:
+            wcap, eff_wd, leave_days = member_week_capacity(w, capacity, m_leave, holiday_dates)
+            planned = member_week_planned(member, w["start_str"], allocs_df)
+            available = round(wcap - planned, 2)
+            bg, fg = avail_color(available, wcap if wcap > 0 else capacity)
+            border = "border:2px solid #e8a87c" if w["is_current"] else "border:1px solid #e0e0e0"
+            leave_marker = "<span style='position:absolute;top:1px;right:3px;font-size:8px;opacity:0.85'>🌴</span>" if leave_days > 0 else ""
+            html += f"<td style='position:relative;padding:5px 8px;text-align:center;{border};background:{bg};color:{fg};font-weight:600'>{leave_marker}{fmt_hours(available)}</td>"
+        html += "</tr>"
+
+    html += "</table></div>"
+    return html
 
 # ── mutators ──────────────────────────────────────────────────────────────────
 
@@ -742,7 +961,9 @@ st.markdown("<div style='color:#6b6b6b;font-size:14px;margin-bottom:8px'>Designi
 for key, loader in [("projects", load_projects), ("members_df", load_team_members), ("roles_df", load_roles),
                     ("tasks", load_tasks), ("timesheets", load_timesheets), ("estimates", load_estimates),
                     ("estimate_lines", load_estimate_lines), ("estimate_disb", load_estimate_disb),
-                    ("companies", load_companies), ("contacts", load_contacts)]:
+                    ("companies", load_companies), ("contacts", load_contacts),
+                    ("resource_allocs", load_resource_allocs), ("holidays", load_holidays),
+                    ("leave", load_leave)]:
     if key not in st.session_state: st.session_state[key] = loader()
 
 # Invoices — not yet persisted to disk; initialise as empty DataFrames
@@ -756,7 +977,8 @@ for key, default in [("message", ""), ("expanded_card", None), ("show_add_projec
                      ("expanded_task", None), ("expanded_ts_entry", None), ("expanded_member", None),
                      ("active_estimate_id", None), ("active_company_id", None), ("active_contact_id", None),
                      ("client_tab", "Companies"), ("current_page", "Project Tracker"),
-                     ("wt_unlock_member", None), ("wt_unlock_week", None), ("wt_show_unlock", False)]:
+                     ("wt_unlock_member", None), ("wt_unlock_week", None), ("wt_show_unlock", False),
+                     ("res_week_offset", 0), ("res_plan_offset", 0), ("res_capacity", 40.0)]:
     if key not in st.session_state: st.session_state[key] = default
 
 member_names = st.session_state.members_df["Team member"].tolist()
@@ -829,6 +1051,31 @@ with st.sidebar:
         st.markdown("---")
         if st.button("＋ New company", use_container_width=True): st.session_state.active_company_id = "new"; st.rerun()
         if st.button("＋ New contact", use_container_width=True): st.session_state.active_contact_id = "new"; st.rerun()
+    elif page == "Resourcing":
+        st.header("Resourcing")
+        cap = st.number_input("Weekly capacity (hrs)", min_value=1.0, max_value=80.0, value=float(st.session_state.res_capacity), step=1.0, key="res_cap_input")
+        st.session_state.res_capacity = cap
+        st.markdown("---")
+        st.metric("Team members", len(member_names))
+        today = pd.Timestamp.now().normalize()
+        cur_monday = today - pd.Timedelta(days=today.weekday())
+        cur_monday_str = cur_monday.strftime("%Y-%m-%d")
+        _hol = holiday_dates_set(st.session_state.holidays)
+        _wk = {"start": cur_monday, "workdays": week_workdays(cur_monday, _hol)}
+        allocs = st.session_state.resource_allocs
+        if not allocs.empty:
+            over = []
+            for m in member_names:
+                m_leave = leave_dates_for_member(m, st.session_state.leave)
+                wcap, _, _ = member_week_capacity(_wk, cap, m_leave, _hol)
+                planned = member_week_planned(m, cur_monday_str, allocs)
+                if planned > wcap: over.append(m)
+            if over:
+                st.warning("⚠️ Over capacity this week: " + ", ".join(over))
+            else:
+                st.caption("No one over capacity this week.")
+        st.markdown("---")
+        st.caption("🟩 plenty free  🟨 getting full  🟥 nearly full  ⬛ over capacity")
 
 # ── PROJECT TRACKER ───────────────────────────────────────────────────────────
 
@@ -1644,6 +1891,314 @@ elif page == "Clients":
                                     + ("⭐ Primary" if ct.get("Is primary") == "True" else "") + "</div>", unsafe_allow_html=True)
                         if st.button("Open", key=f"open_ct_{ctid}", use_container_width=True):
                             st.session_state.active_contact_id = ctid; st.rerun()
+
+# ── RESOURCING ────────────────────────────────────────────────────────────────
+
+elif page == "Resourcing":
+    capacity = float(st.session_state.res_capacity)
+    hol_set = holiday_dates_set(st.session_state.holidays)
+    tab_chart, tab_plan, tab_compare, tab_leave, tab_holidays = st.tabs(
+        ["📊 Availability Chart", "✏️ Plan Hours", "📈 Projected vs Actual", "🌴 Leave", "🗓 Holidays"]
+    )
+
+    # ── TAB 1: AVAILABILITY CHART ─────────────────────────────────────────────
+    with tab_chart:
+        nav = st.columns([0.6, 1.2, 0.6, 1.4, 0.6, 1.6, 0.6, 3])
+        if nav[0].button("←", key="res_wk_prev"): st.session_state.res_week_offset -= 1; st.rerun()
+        if nav[1].button("Today", key="res_today", use_container_width=True): st.session_state.res_week_offset = 0; st.rerun()
+        if nav[2].button("→", key="res_wk_next"): st.session_state.res_week_offset += 1; st.rerun()
+
+        weeks = get_week_starts(st.session_state.res_week_offset, 17, hol_set)
+        first_month = weeks[0]["month"]
+
+        if nav[4].button("←", key="res_mo_prev"): st.session_state.res_week_offset -= 4; st.rerun()
+        nav[5].markdown(f"<div style='text-align:center;padding-top:6px;font-weight:600'>{first_month}</div>", unsafe_allow_html=True)
+        if nav[6].button("→", key="res_mo_next"): st.session_state.res_week_offset += 4; st.rerun()
+
+        st.markdown("")
+        html = build_availability_table_html(member_names, weeks, st.session_state.resource_allocs, st.session_state.leave, hol_set, capacity)
+        st.markdown(html, unsafe_allow_html=True)
+        st.caption("Each cell shows **remaining available hours** (that week's capacity − projected hours). Public holidays shrink the whole week; a 🌴 marks a week where that person has personal leave, which lowers only their capacity.")
+
+    # ── TAB 2: PLAN HOURS ─────────────────────────────────────────────────────
+    with tab_plan:
+        if not member_names:
+            st.warning("No team members set up yet. Add team members in the Project Tracker page first.")
+        else:
+            pc = st.columns([2, 0.6, 2.4, 0.6, 2])
+            plan_member = pc[0].selectbox("Team member", member_names, key="res_plan_member")
+            if pc[1].button("◀", key="res_plan_prev"): st.session_state.res_plan_offset -= 1; st.rerun()
+            if pc[3].button("▶", key="res_plan_next"): st.session_state.res_plan_offset += 1; st.rerun()
+            if pc[4].button("Today", key="res_plan_today", use_container_width=True): st.session_state.res_plan_offset = 0; st.rerun()
+
+            plan_weeks = get_week_starts(st.session_state.res_plan_offset, 8, hol_set)
+            week_strs = [w["start_str"] for w in plan_weeks]
+            pc[2].markdown(f"<div style='text-align:center;font-weight:600;padding-top:6px'>{plan_weeks[0]['date_label']} → {plan_weeks[-1]['date_label']}</div>", unsafe_allow_html=True)
+
+            active_projects = st.session_state.projects[st.session_state.projects["Status"] != "Complete"]
+            proj_filter = st.multiselect(
+                "Projects to show",
+                st.session_state.projects["Project name"].dropna().unique().tolist(),
+                default=active_projects["Project name"].dropna().unique().tolist(),
+                key="res_proj_filter"
+            )
+
+            FIXED_RES_ROWS = [("", "Admin"), ("", "WIP"), ("", "Design Team Meeting"), ("", "Red Dot Projects")]
+            proj_rows = [(r["Project ID"], r["Project name"]) for _, r in st.session_state.projects.iterrows() if r["Project name"] in proj_filter]
+            all_rows = FIXED_RES_ROWS + proj_rows
+
+            allocs = st.session_state.resource_allocs
+
+            def get_planned(pname, ws):
+                if allocs.empty: return 0.0
+                m = allocs[(allocs["Team member"] == plan_member) & (allocs["Project name"] == pname) & (allocs["Week start"] == ws)]
+                return parse_budget(m.iloc[0]["Projected hours"]) if not m.empty else 0.0
+
+            st.markdown("---")
+            hdr = st.columns([3] + [1] * 8)
+            hdr[0].markdown("**Project / Task**")
+            _plan_leave = leave_dates_for_member(plan_member, st.session_state.leave)
+            for j, w in enumerate(plan_weeks):
+                star = " 🔸" if w["is_current"] else ""
+                _ld = member_week_leave_days(None, w["start"], _plan_leave, hol_set)
+                marks = ""
+                if w["workdays"] < 5: marks += f" 🗓{w['workdays']}d"
+                if _ld > 0: marks += " 🌴"
+                hdr[j + 1].markdown(f"<div style='font-size:10px;font-weight:600;text-align:center'>{w['label']}{star}<br>{w['date_label'][:5]}{marks}</div>", unsafe_allow_html=True)
+
+            new_grid = {}
+            for ri, (pid, pname) in enumerate(all_rows):
+                rc = st.columns([3] + [1] * 8)
+                disp = pname if len(pname) <= 28 else pname[:26] + "…"
+                rc[0].markdown(f"<div style='font-size:13px;font-weight:500;padding-top:6px'>{disp}</div>", unsafe_allow_html=True)
+                new_grid[ri] = {}
+                for j, w in enumerate(plan_weeks):
+                    ws = w["start_str"]
+                    new_grid[ri][ws] = rc[j + 1].number_input(
+                        "h", min_value=0.0, max_value=80.0, step=0.5, value=get_planned(pname, ws),
+                        key=f"res_cell_{ri}_{ws}_{plan_member}", label_visibility="collapsed", format="%.1f"
+                    )
+
+            st.markdown("---")
+            tot = st.columns([3] + [1] * 8)
+            tot[0].markdown("**Total projected / Available**")
+            plan_member_leave = leave_dates_for_member(plan_member, st.session_state.leave)
+            for j, w in enumerate(plan_weeks):
+                ws = w["start_str"]
+                planned = sum(new_grid[ri][ws] for ri in new_grid)
+                wcap, _, _ = member_week_capacity(w, capacity, plan_member_leave, hol_set)
+                available = wcap - planned
+                bg, fg = avail_color(available, wcap if wcap > 0 else capacity)
+                tot[j + 1].markdown(
+                    f"<div style='text-align:center;font-weight:700;padding:4px 2px'>{planned:.1f}</div>"
+                    f"<div style='text-align:center;font-weight:700;background:{bg};color:{fg};border-radius:4px;padding:3px 2px;font-size:12px'>{fmt_hours(available)} free</div>",
+                    unsafe_allow_html=True)
+
+            st.markdown("")
+            save_col, _ = st.columns([2, 4])
+            if save_col.button("💾 Save Plan", use_container_width=True, key="res_save_plan"):
+                df = st.session_state.resource_allocs.copy()
+                df = df[~((df["Team member"] == plan_member) & (df["Week start"].isin(week_strs)))]
+                new_entries = []
+                for ri, (pid, pname) in enumerate(all_rows):
+                    for ws in week_strs:
+                        hrs = new_grid[ri][ws]
+                        if hrs > 0:
+                            new_entries.append({
+                                "Alloc ID": create_id(), "Team member": plan_member,
+                                "Project ID": pid, "Project name": pname, "Week start": ws,
+                                "Projected hours": str(hrs), "Last updated": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
+                            })
+                if new_entries:
+                    df = pd.concat([df, pd.DataFrame(new_entries)], ignore_index=True)
+                st.session_state.resource_allocs = df
+                save_resource_allocs(df)
+                st.success(f"Projected hours saved for {plan_member}."); st.rerun()
+
+    # ── TAB 3: PROJECTED VS ACTUAL ────────────────────────────────────────────
+    with tab_compare:
+        st.markdown("Compare **projected** hours (from planning) against **actual** hours logged in timesheets.")
+        cc = st.columns([2, 0.5, 2.5, 0.5])
+        cmp_member = cc[0].selectbox("Team member", ["All members"] + member_names, key="res_cmp_member")
+        if cc[1].button("◀", key="res_cmp_prev"): st.session_state.res_week_offset -= 1; st.rerun()
+        if cc[3].button("▶", key="res_cmp_next"): st.session_state.res_week_offset += 1; st.rerun()
+
+        cmp_weeks = get_week_starts(st.session_state.res_week_offset, 12, hol_set)
+        cc[2].markdown(f"<div style='text-align:center;font-weight:600;padding-top:6px'>{cmp_weeks[0]['date_label']} → {cmp_weeks[-1]['date_label']}</div>", unsafe_allow_html=True)
+
+        ts = st.session_state.timesheets
+        allocs = st.session_state.resource_allocs
+
+        if cmp_member == "All members":
+            rows = []
+            for w in cmp_weeks:
+                proj = sum(member_week_planned(m, w["start_str"], allocs) for m in member_names)
+                act = sum(member_week_actual(m, w["start_str"], ts) for m in member_names)
+                rows.append({"Week": w["label"], "Projected": round(proj, 1), "Actual": round(act, 1), "Variance": round(act - proj, 1)})
+            cmp_df = pd.DataFrame(rows)
+        else:
+            rows = []
+            for w in cmp_weeks:
+                proj = member_week_planned(cmp_member, w["start_str"], allocs)
+                act = member_week_actual(cmp_member, w["start_str"], ts)
+                rows.append({"Week": w["label"], "Projected": round(proj, 1), "Actual": round(act, 1), "Variance": round(act - proj, 1)})
+            cmp_df = pd.DataFrame(rows)
+
+        if cmp_df[["Projected", "Actual"]].to_numpy().sum() == 0:
+            st.info("No projected or actual hours in this window yet.")
+        else:
+            long_df = cmp_df.melt(id_vars="Week", value_vars=["Projected", "Actual"], var_name="Type", value_name="Hours")
+            week_order = cmp_df["Week"].tolist()
+            bar = alt.Chart(long_df).mark_bar().encode(
+                x=alt.X("Week:N", sort=week_order, title="", axis=alt.Axis(labelAngle=0, labelFontSize=11)),
+                xOffset=alt.XOffset("Type:N"),
+                y=alt.Y("Hours:Q", title="Hours"),
+                color=alt.Color("Type:N", scale=alt.Scale(domain=["Projected", "Actual"], range=["#3498db", "#2ecc71"]),
+                                legend=alt.Legend(title="", orient="top")),
+                tooltip=[alt.Tooltip("Week:N"), alt.Tooltip("Type:N"), alt.Tooltip("Hours:Q")],
+            ).properties(width="container", height=320, background="transparent").configure_view(strokeWidth=0).configure_axis(labelColor="#2c2c2c", titleColor="#2c2c2c", gridColor="#e3e1dd")
+            st.altair_chart(bar, use_container_width=True)
+
+            def style_variance(val):
+                try: v = float(val)
+                except: return ""
+                if v > 0: return "background-color:#fdecea;color:#c0392b"   # over plan
+                if v < 0: return "background-color:#eafaf1;color:#1e8449"   # under plan
+                return ""
+            st.markdown("**Detail**")
+            st.dataframe(cmp_df.style.map(style_variance, subset=["Variance"]), use_container_width=True, hide_index=True)
+            st.caption("Variance = Actual − Projected. Positive (red) means more hours logged than planned; negative (green) means under plan.")
+
+    # ── TAB 4: LEAVE (per-person) ─────────────────────────────────────────────
+    with tab_leave:
+        if not member_names:
+            st.warning("No team members set up yet.")
+        else:
+            st.markdown("Record individual leave. Leave only reduces **that person's** capacity for the affected weeks — the rest of the team is unaffected.")
+            lc1, lc2 = st.columns([1, 1])
+            with lc1:
+                st.markdown("**Book leave**")
+                with st.form("add_leave_form"):
+                    lv_member = st.selectbox("Team member", member_names, key="lv_member")
+                    lv_from = st.date_input("From", value=pd.Timestamp.now().date(), key="lv_from")
+                    lv_to = st.date_input("To", value=pd.Timestamp.now().date(), key="lv_to")
+                    lv_type = st.selectbox("Type", LEAVE_TYPES, key="lv_type")
+                    lv_notes = st.text_input("Notes (optional)", key="lv_notes")
+                    if st.form_submit_button("Book leave", use_container_width=True):
+                        if lv_to < lv_from:
+                            st.warning("'To' date is before 'From' date.")
+                        else:
+                            existing = leave_dates_for_member(lv_member, st.session_state.leave)
+                            new_rows = []
+                            d = pd.Timestamp(lv_from)
+                            end = pd.Timestamp(lv_to)
+                            while d <= end:
+                                if d.weekday() < 5 and d.date() not in existing:   # weekdays only, no dupes
+                                    new_rows.append({"Leave ID": create_id(), "Team member": lv_member,
+                                                     "Date": d.strftime("%Y-%m-%d"), "Type": lv_type, "Notes": lv_notes})
+                                d += pd.Timedelta(days=1)
+                            if new_rows:
+                                st.session_state.leave = pd.concat([st.session_state.leave, pd.DataFrame(new_rows)], ignore_index=True)
+                                save_leave(st.session_state.leave)
+                                st.success(f"Booked {len(new_rows)} day(s) of leave for {lv_member}."); st.rerun()
+                            else:
+                                st.info("No new weekdays to add (weekends skipped / already booked).")
+            with lc2:
+                st.markdown("**Upcoming leave**")
+                view_member = st.selectbox("Show", ["All members"] + member_names, key="lv_view_member")
+                lv_df = st.session_state.leave.copy()
+                if view_member != "All members":
+                    lv_df = lv_df[lv_df["Team member"] == view_member]
+                if lv_df.empty:
+                    st.caption("No leave booked.")
+                else:
+                    lv_df["_dt"] = pd.to_datetime(lv_df["Date"], errors="coerce")
+                    today = pd.Timestamp.now().normalize()
+                    lv_df = lv_df[lv_df["_dt"] >= today - pd.Timedelta(days=7)].sort_values("_dt")
+                    # Group consecutive days per member+type into ranges for a tidy display
+                    shown = 0
+                    for (mem, typ), grp in lv_df.groupby(["Team member", "Type"]):
+                        dates = sorted(grp["_dt"].dropna().tolist())
+                        # collapse into contiguous runs
+                        runs = []
+                        run = [dates[0]] if dates else []
+                        for prev, cur_d in zip(dates, dates[1:]):
+                            if (cur_d - prev).days <= 3:   # within a few days (skip weekends)
+                                run.append(cur_d)
+                            else:
+                                runs.append(run); run = [cur_d]
+                        if run: runs.append(run)
+                        for r in runs:
+                            shown += 1
+                            label = r[0].strftime("%d %b") if len(r) == 1 else f"{r[0].strftime('%d %b')} – {r[-1].strftime('%d %b %Y')}"
+                            rc = st.columns([3, 2, 1])
+                            rc[0].markdown(f"**{mem}**")
+                            rc[1].caption(f"{label} · {typ} ({len(r)}d)")
+                            if rc[2].button("🗑", key=f"del_leave_{mem}_{typ}_{r[0].strftime('%Y%m%d')}"):
+                                drop_strs = [d.strftime("%Y-%m-%d") for d in r]
+                                st.session_state.leave = st.session_state.leave[
+                                    ~((st.session_state.leave["Team member"] == mem) &
+                                      (st.session_state.leave["Type"] == typ) &
+                                      (st.session_state.leave["Date"].isin(drop_strs)))]
+                                save_leave(st.session_state.leave); st.rerun()
+                    if shown == 0:
+                        st.caption("No upcoming leave.")
+
+    # ── TAB 5: HOLIDAYS ───────────────────────────────────────────────────────
+    with tab_holidays:
+        st.markdown("Public holidays reduce that week's workdays for **everyone**, scaling the whole team's capacity down for the affected week.")
+
+        st.markdown("**Load a full year of NZ public holidays**")
+        yc1, yc2, _ = st.columns([1, 1, 3])
+        year_choice = yc1.number_input("Year", min_value=2022, max_value=2035, value=pd.Timestamp.now().year, step=1, key="hol_year")
+        if yc2.button("＋ Add year", use_container_width=True, key="add_year_hols"):
+            existing_dates = set(st.session_state.holidays["Date"].tolist())
+            new_rows = [{"Date": d, "Name": n} for d, n in nz_public_holidays(int(year_choice)) if d not in existing_dates]
+            if new_rows:
+                st.session_state.holidays = pd.concat([st.session_state.holidays, pd.DataFrame(new_rows)], ignore_index=True)
+                save_holidays(st.session_state.holidays)
+                st.success(f"Added {len(new_rows)} public holiday(s) for {int(year_choice)}."); st.rerun()
+            else:
+                st.info(f"All {int(year_choice)} public holidays are already in the list.")
+        st.caption("Generates the standard NZ public holidays (incl. computed Easter, King's Birthday, Labour Day and official Matariki dates). Edit or delete any below — e.g. add regional anniversary days.")
+        st.markdown("---")
+
+        hc1, hc2 = st.columns([1, 1])
+        with hc1:
+            st.markdown("**Add a single holiday**")
+            with st.form("add_holiday_form"):
+                h_date = st.date_input("Date", value=pd.Timestamp.now().date())
+                h_name = st.text_input("Name", placeholder="e.g. Wellington Anniversary")
+                if st.form_submit_button("Add holiday", use_container_width=True):
+                    ds = h_date.strftime("%Y-%m-%d")
+                    if not st.session_state.holidays[st.session_state.holidays["Date"] == ds].empty:
+                        st.warning("A holiday already exists on that date.")
+                    else:
+                        st.session_state.holidays = pd.concat(
+                            [st.session_state.holidays, pd.DataFrame([{"Date": ds, "Name": h_name or "Holiday"}])],
+                            ignore_index=True)
+                        save_holidays(st.session_state.holidays); st.rerun()
+        with hc2:
+            st.markdown("**Scheduled holidays**")
+            hol_df = st.session_state.holidays.copy()
+            if hol_df.empty:
+                st.caption("No holidays added yet.")
+            else:
+                hol_df["_dt"] = pd.to_datetime(hol_df["Date"], errors="coerce")
+                hol_df = hol_df.sort_values("_dt")
+                today = pd.Timestamp.now().normalize()
+                hol_df = hol_df[hol_df["_dt"] >= today - pd.Timedelta(days=30)]
+                if hol_df.empty:
+                    st.caption("No upcoming holidays. Older holidays are hidden.")
+                for _, h in hol_df.iterrows():
+                    dt = h["_dt"]
+                    rcols = st.columns([2, 3, 1])
+                    rcols[0].markdown(f"**{dt.strftime('%d %b %Y') if not pd.isna(dt) else h['Date']}**")
+                    rcols[1].caption(h["Name"])
+                    if rcols[2].button("🗑", key=f"del_hol_{h['Date']}_{h['Name'][:6]}"):
+                        st.session_state.holidays = st.session_state.holidays[
+                            ~((st.session_state.holidays["Date"] == h["Date"]) & (st.session_state.holidays["Name"] == h["Name"]))]
+                        save_holidays(st.session_state.holidays); st.rerun()
 
 # ── footer ────────────────────────────────────────────────────────────────────
 
