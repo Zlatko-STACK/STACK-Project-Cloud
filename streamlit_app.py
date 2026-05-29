@@ -886,10 +886,26 @@ button[kind="headerNoPadding"] {
     font-weight: 700 !important;
 }
 
-/* Dataframes */
+/* Dataframes — blend with theme */
 [data-testid="stDataFrame"] {
     border-radius: 6px;
     overflow: hidden;
+    border: 1px solid #e3e1dd;
+}
+[data-testid="stDataFrame"] [data-testid="stTable"],
+[data-testid="stDataFrame"] div[role="grid"] {
+    background-color: transparent !important;
+}
+/* Header row */
+[data-testid="stDataFrame"] [role="columnheader"] {
+    background-color: #1a1a1a !important;
+    color: #ffffff !important;
+    font-weight: 600 !important;
+}
+/* Data cells */
+[data-testid="stDataFrame"] [role="gridcell"] {
+    background-color: #ffffff !important;
+    color: #2c2c2c !important;
 }
 
 /* Download buttons */
@@ -1037,14 +1053,19 @@ with st.sidebar:
 if page == "Project Tracker":
     filtered = filter_projects(st.session_state.projects, selected_stages, selected_status, search_query)
     display = filtered.copy()
+    # Sort by most recently updated first
+    display["_sort"] = pd.to_datetime(display["Last updated"], errors="coerce")
+    display = display.sort_values("_sort", ascending=False, na_position="last").drop(columns=["_sort"])
     display["Compliance %"] = display["Compliance checklist"].apply(compliance_progress)
     display["Milestone %"] = display["Milestones"].apply(milestone_progress)
     display["Budget"] = display["Budget"].apply(format_budget)
+    # Columns to show — drop Company ID
+    show_cols = [c for c in COLUMNS if c != "Company ID"] + ["Compliance %", "Milestone %"]
     left, right = st.columns([2, 1])
     with left:
         st.subheader("Active projects")
         if display.empty: st.info("No projects match the filters.")
-        else: st.dataframe(display[COLUMNS + ["Compliance %", "Milestone %"]].fillna(""), use_container_width=True)
+        else: st.dataframe(display[show_cols].fillna(""), use_container_width=True, hide_index=True)
     with right:
         st.subheader("Update an existing project")
         proj_options = [""] + st.session_state.projects["Project name"].dropna().unique().tolist()
