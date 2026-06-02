@@ -60,6 +60,7 @@ DEFAULT_ROLES = {"Technician": 85.0, "Graduate": 95.0, "Intermediate Designer": 
                  "Project Manager": 140.0, "Site Manager": 130.0, "Quantity Surveyor": 125.0, "Director": 200.0}
 
 PAGES = ["Dashboard", "Projects", "Task Tracker", "Timesheets", "Fee Estimator", "Clients", "Resourcing"]
+ASK_MODEL = "claude-3-5-sonnet-latest"  # update to the current model name from docs.claude.com if a call fails; -haiku-latest is cheaper
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -816,6 +817,77 @@ def filter_projects(df, stage_filter, status_filter, search_text):
         s = search_text.lower()
         f = f[f["Project name"].str.lower().str.contains(s, na=False) | f["Client"].str.lower().str.contains(s, na=False) | f["Location"].str.lower().str.contains(s, na=False)]
     return f
+
+def build_ask_context():
+    proj = st.session_state.projects; ts = st.session_state.timesheets; tasks = st.session_state.tasks
+    rates = get_role_rates(st.session_state.roles_df)
+    members = st.session_state.members_df["Team member"].tolist()
+    today = pd.Timestamp.now().normalize()
+    L = [f"Date today: {today.strftime('%Y-%m-%d')}", f"Team members: {', '.join(members) or 'none'}"]
+
+    L.append("\n## PROJECTS")
+    if proj.empty: L.append("(none)")
+    for _, p in proj.iterrows():
+        pid = p["Project ID"]; fee = parse_budget(p.get("Fee", "0"))
+        consumed = project_fee_consumed(pid, ts, rates); hours = project_hours_logged(pid, ts)
+        pct = round(consumed / fee * 100, 1) if fee > 0 else 0
+        tm = ", ".join(parse_team_members(p.get("Team members", "")))
+        L.append(f"- {p['Project name']} | client: {p.get('Client') or '—'} | stage: {p.get('Stage')} | "
+                 f"status: {p.get('Status')} | fee ${fee:,.0f} | hours logged {hours} | fee used {pct}% | "
+                 f"milestones {milestone_progress(p.get('Milestones',''))}% | PM: {p.get('Project manager') or '—'} | "
+                 f"team: {tm or '—'} | start {p.get('Start date')} target {p.get('Target completion')}")
+
+    L.append("\n## TASKS")
+    if tasks.empty: L.append("(none)")
+    else:
+        for s in TASK_STATUSES: L.append(f"- {s}: {len(tasks[tasks['Status']==s])}")
+        ong = tasks[tasks["Status"] == "Ongoing"]
+        if not ong.empty:
+            L.append("Ongoing tasks:")
+            for _, t in ong.head(40).iterrows():
+                L.append(f"  - {t['Task name']} ({t['Project name']}) — {t['Assigned to'] or 'unassigned'}")
+
+    L.append("\n## HOURS LOGGED — by team member (all time)")
+    if ts.empty: L.append("(none)")
+    else:
+        for m, h in ts.groupby("Team member")["Hours"].apply(lambda g: round(g.apply(parse_budget).sum(), 1)).sort_values(ascending=False).items():
+            L.append(f"- {m}: {h}h")
+    L.append("\n## HOURS LOGGED — by project (all time)")
+    if not ts.empty:
+        for pn, h in ts.groupby("Project name")["Hours"].apply(lambda g: round(g.apply(parse_budget).sum(), 1)).sort_values(ascending=False).items():
+            L.append(f"- {pn}: {h}h")
+
+    L.append("\n## RESOURCING — this week")
+    hol = holiday_dates_set(st.session_state.holidays)
+    cur_monday = today - pd.Timedelta(days=today.weekday())
+    wk = {"start": cur_monday, "workdays": week_workdays(cur_monday, hol)}
+    cap = float(st.session_state.res_capacity); allocs = st.session_state.resource_allocs
+    for m in members:
+        wcap, _, _ = member_week_capacity(wk, cap, leave_dates_for_member(m, st.session_state.leave), hol)
+        planned = member_week_planned(m, cur_monday.strftime("%Y-%m-%d"), allocs)
+        L.append(f"- {m}: planned {planned}h of {wcap:.0f}h capacity ({'OVER CAPACITY' if planned > wcap else 'ok'})")
+
+    L.append("\n## CLIENTS")
+    co = st.session_state.companies
+    for s in CLIENT_STATUSES: L.append(f"- {s}: {len(co[co['Status']==s])}")
+
+    L.append("\n## BUILDINGS")
+    name_by_id = dict(zip(co["Company ID"], co["Name"]))
+    if st.session_state.buildings.empty: L.append("(none)")
+    for _, b in st.session_state.buildings.iterrows():
+        bt = st.session_state.tenancies[st.session_state.tenancies["Building ID"] == b["Building ID"]]
+        sqm = sum(parse_budget(x) for x in bt["Sqm"].tolist())
+        occ = [f"{name_by_id.get(t['Company ID'],'?')} ({t.get('Floor') or 'floor n/a'}, {parse_budget(t.get('Sqm','0')):.0f}m²)" for _, t in bt.iterrows()]
+        L.append(f"- {b['Name']} ({b.get('Address') or 'no address'}): {bt['Company ID'].nunique()} clients, {sqm:.0f} m² total — {'; '.join(occ) or 'no tenancies'}")
+
+    L.append("\n## UPCOMING LEAVE (next 30 days)")
+    lv = st.session_state.leave.copy()
+    if not lv.empty:
+        lv["_dt"] = pd.to_datetime(lv["Date"], errors="coerce")
+        up = lv[(lv["_dt"] >= today) & (lv["_dt"] <= today + pd.Timedelta(days=30))]
+        for m in up["Team member"].unique():
+            L.append(f"- {m}: {len(up[up['Team member']==m])} day(s)")
+    return "\n".join(L)
 
 # ── app setup ─────────────────────────────────────────────────────────────────
 
@@ -2462,6 +2534,100 @@ elif page == "Resourcing":
                     if rcols[2].button("🗑", key=f"del_hol_{h['Date']}_{h['Name'][:6]}"):
                         st.session_state.holidays = st.session_state.holidays[~((st.session_state.holidays["Date"] == h["Date"]) & (st.session_state.holidays["Name"] == h["Name"]))]
                         save_holidays(st.session_state.holidays); st.rerun()
+
+# ── Milo (floating chat widget, all pages) ────────────────────────────────────
+
+MILO_STARTERS = [
+    "Which projects are at risk?",
+    "Who's over capacity this week?",
+    "Which projects are over fee?",
+    "Who's on leave in the next 30 days?",
+]
+
+st.markdown("""
+<style>
+/* Pin the popover (round toggle) to the bottom-right corner */
+div[data-testid="stPopover"]:has(button[data-testid="stPopoverButton"]) { position: fixed; bottom: 24px; right: 24px; z-index: 1000; }
+/* Round yellow toggle button */
+div[data-testid="stPopover"] button[data-testid="stPopoverButton"] {
+    border-radius: 50% !important; width: 60px !important; height: 60px !important;
+    background: #F2C94C !important; color: #1a1a1a !important; border: none !important;
+    font-size: 24px !important; font-weight: 700 !important; padding: 0 !important;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.28) !important; transition: all .15s ease !important; }
+div[data-testid="stPopover"] button[data-testid="stPopoverButton"]:hover { background: #f5d36b !important; transform: translateY(-2px) !important; }
+/* The opened panel: card shape, no default padding so the header can sit flush */
+div[data-testid="stPopoverBody"] { width: 380px !important; max-width: 92vw !important; padding: 0 !important; border-radius: 14px !important; overflow: hidden !important; }
+/* Dark header strip */
+.milo-header { background:#1a1a1a; color:#fff; padding:14px 16px; display:flex; align-items:center; gap:10px; margin:-1px -1px 0; }
+.milo-header .milo-avatar { width:32px; height:32px; border-radius:50%; background:#F2C94C; color:#1a1a1a; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:16px; }
+.milo-header .milo-name { font-weight:700; font-size:15px; line-height:1.1; }
+.milo-header .milo-sub { font-size:10px; color:#b0b0b0; }
+/* Tighten the body padding under the header */
+div[data-testid="stPopoverBody"] > div { padding: 12px 14px 14px; }
+/* Quick-reply chips: pill outline buttons */
+div[data-testid="stPopoverBody"] .stButton > button { border-radius:16px !important; border:1px solid #d8d6d2 !important; background:#fff !important; color:#2c2c2c !important; font-weight:500 !important; font-size:12px !important; text-align:left !important; padding:6px 12px !important; }
+div[data-testid="stPopoverBody"] .stButton > button:hover { border-color:#1a1a1a !important; background:#1a1a1a !important; color:#F2C94C !important; }
+</style>
+""", unsafe_allow_html=True)
+
+def _milo_send(question):
+    st.session_state.ask_history.append({"role": "user", "content": question})
+    system = (
+        "You are Milo, a friendly assistant for STACK, an interior fit-out firm, answering staff questions about "
+        "their project-management data. Answer ONLY using the DATA SUMMARY below. If something isn't in it, say you "
+        "don't have that detail rather than guessing. Be concise and use the actual numbers. Never invent projects, "
+        "people, clients or figures. You are read-only: if asked to change anything, explain you can't and point "
+        "them to the relevant page.\n\n=== DATA SUMMARY ===\n" + build_ask_context()
+    )
+    msgs = [{"role": m["role"], "content": m["content"]} for m in st.session_state.ask_history]
+    try:
+        import anthropic
+        _client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+        _resp = _client.messages.create(model=ASK_MODEL, max_tokens=1000, system=system, messages=msgs)
+        _answer = "".join(b.text for b in _resp.content if b.type == "text")
+        st.session_state.ask_history.append({"role": "assistant", "content": _answer})
+    except Exception as e:
+        st.session_state.ask_history.append({"role": "assistant", "content": f"Sorry — I couldn't reach the model: {e}"})
+
+with st.popover("💬", use_container_width=False):
+    st.markdown(
+        "<div class='milo-header'><div class='milo-avatar'>M</div>"
+        "<div><div class='milo-name'>Milo</div><div class='milo-sub'>STACK data assistant · read-only</div></div></div>",
+        unsafe_allow_html=True)
+
+    _milo_ready = True
+    try:
+        import anthropic  # noqa: F401
+    except ImportError:
+        st.error("`anthropic` not installed — add it to requirements.txt and reinstall."); _milo_ready = False
+    if _milo_ready:
+        try: _has_key = bool(st.secrets["ANTHROPIC_API_KEY"])
+        except Exception: _has_key = False
+        if not _has_key:
+            st.info("Add `ANTHROPIC_API_KEY` to `.streamlit/secrets.toml`, then reload."); _milo_ready = False
+
+    if _milo_ready:
+        if "ask_history" not in st.session_state: st.session_state.ask_history = []
+
+        chat_box = st.container(height=300)
+        with chat_box:
+            if not st.session_state.ask_history:
+                st.markdown("<div style='color:#6b6b6b;font-size:13px;padding:4px 2px'>Hi, I'm Milo 👋 Ask me about your projects, hours, resourcing or clients — or tap a question below.</div>", unsafe_allow_html=True)
+            for msg in st.session_state.ask_history:
+                with st.chat_message(msg["role"], avatar=("🟡" if msg["role"] == "assistant" else None)):
+                    st.markdown(msg["content"])
+
+        if not st.session_state.ask_history:
+            for i, s in enumerate(MILO_STARTERS):
+                if st.button(s, key=f"milo_starter_{i}", use_container_width=True):
+                    _milo_send(s); st.rerun()
+        else:
+            if st.button("🧹 Clear chat", key="milo_clear", use_container_width=True):
+                st.session_state.ask_history = []; st.rerun()
+
+        q = st.chat_input("Ask Milo…", key="milo_input")
+        if q:
+            _milo_send(q); st.rerun()
 
 # ── footer ────────────────────────────────────────────────────────────────────
 
