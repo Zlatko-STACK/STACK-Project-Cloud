@@ -2563,8 +2563,24 @@ def _milo_send(question):
     except Exception as e:
         st.session_state.ask_history.append({"role": "assistant", "content": f"Sorry — I couldn't reach the model: {e}"})
 
+st.markdown("""
+<style>
+/* Float Milo's toggle button bottom-right, fixed on scroll */
+.st-key-milo_toggle { position: fixed; right: 28px; bottom: 28px; z-index: 1000; width: auto !important; }
+.st-key-milo_toggle button {
+    background: linear-gradient(135deg, #1a1a1a 0%, #2c2c2c 100%) !important;
+    color: #F2C94C !important; border: none !important; border-radius: 30px !important;
+    padding: 12px 22px !important; font-weight: 700 !important; font-size: 14px !important;
+    letter-spacing: 0.02em !important; box-shadow: 0 8px 24px rgba(0,0,0,0.30) !important;
+    transition: transform .15s ease, box-shadow .15s ease, background .15s ease !important; }
+.st-key-milo_toggle button:hover {
+    transform: translateY(-3px) scale(1.03) !important; color: #F2C94C !important;
+    background: linear-gradient(135deg, #2c2c2c 0%, #3a3a3a 100%) !important;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.40), 0 0 0 3px rgba(242,201,76,0.25) !important; }
+</style>
+""", unsafe_allow_html=True)
 if "milo_open" not in st.session_state: st.session_state.milo_open = False
-if st.button("✕ Close Milo" if st.session_state.milo_open else "💬 Ask Milo — your STACK data assistant", key="milo_toggle", use_container_width=True):
+if st.button("✕  Close Milo" if st.session_state.milo_open else "💬  Ask Milo", key="milo_toggle"):
     st.session_state.milo_open = not st.session_state.milo_open; st.rerun()
 if st.session_state.milo_open:
     st.caption("Read-only — Milo answers from a live summary of your data and can't change anything.")
