@@ -2535,7 +2535,7 @@ elif page == "Resourcing":
                         st.session_state.holidays = st.session_state.holidays[~((st.session_state.holidays["Date"] == h["Date"]) & (st.session_state.holidays["Name"] == h["Name"]))]
                         save_holidays(st.session_state.holidays); st.rerun()
 
-# ── Milo (floating chat widget, all pages) ────────────────────────────────────
+# ── Milo (collapsible assistant, all pages) ───────────────────────────────────
 
 MILO_STARTERS = [
     "Which projects are at risk?",
@@ -2543,32 +2543,6 @@ MILO_STARTERS = [
     "Which projects are over fee?",
     "Who's on leave in the next 30 days?",
 ]
-
-st.markdown("""
-<style>
-/* Pin the popover (round toggle) to the bottom-right corner */
-div[data-testid="stPopover"]:has(button[data-testid="stPopoverButton"]) { position: fixed; bottom: 24px; right: 24px; z-index: 1000; }
-/* Round yellow toggle button */
-div[data-testid="stPopover"] button[data-testid="stPopoverButton"] {
-    border-radius: 50% !important; width: 60px !important; height: 60px !important;
-    background: #F2C94C !important; color: #1a1a1a !important; border: none !important;
-    font-size: 24px !important; font-weight: 700 !important; padding: 0 !important;
-    box-shadow: 0 6px 18px rgba(0,0,0,0.28) !important; transition: all .15s ease !important; }
-div[data-testid="stPopover"] button[data-testid="stPopoverButton"]:hover { background: #f5d36b !important; transform: translateY(-2px) !important; }
-/* The opened panel: card shape, no default padding so the header can sit flush */
-div[data-testid="stPopoverBody"] { width: 380px !important; max-width: 92vw !important; padding: 0 !important; border-radius: 14px !important; overflow: hidden !important; }
-/* Dark header strip */
-.milo-header { background:#1a1a1a; color:#fff; padding:14px 16px; display:flex; align-items:center; gap:10px; margin:-1px -1px 0; }
-.milo-header .milo-avatar { width:32px; height:32px; border-radius:50%; background:#F2C94C; color:#1a1a1a; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:16px; }
-.milo-header .milo-name { font-weight:700; font-size:15px; line-height:1.1; }
-.milo-header .milo-sub { font-size:10px; color:#b0b0b0; }
-/* Tighten the body padding under the header */
-div[data-testid="stPopoverBody"] > div { padding: 12px 14px 14px; }
-/* Quick-reply chips: pill outline buttons */
-div[data-testid="stPopoverBody"] .stButton > button { border-radius:16px !important; border:1px solid #d8d6d2 !important; background:#fff !important; color:#2c2c2c !important; font-weight:500 !important; font-size:12px !important; text-align:left !important; padding:6px 12px !important; }
-div[data-testid="stPopoverBody"] .stButton > button:hover { border-color:#1a1a1a !important; background:#1a1a1a !important; color:#F2C94C !important; }
-</style>
-""", unsafe_allow_html=True)
 
 def _milo_send(question):
     st.session_state.ask_history.append({"role": "user", "content": question})
