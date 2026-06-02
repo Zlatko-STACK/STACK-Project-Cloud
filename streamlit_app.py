@@ -60,7 +60,7 @@ DEFAULT_ROLES = {"Technician": 85.0, "Graduate": 95.0, "Intermediate Designer": 
                  "Project Manager": 140.0, "Site Manager": 130.0, "Quantity Surveyor": 125.0, "Director": 200.0}
 
 PAGES = ["Dashboard", "Projects", "Task Tracker", "Timesheets", "Fee Estimator", "Clients", "Resourcing"]
-ASK_MODEL = "claude-3-5-sonnet-latest"  # update to the current model name from docs.claude.com if a call fails; -haiku-latest is cheaper
+ASK_MODEL = "claude-haiku-4-5"  # current pinned model ID (Claude Haiku 4.5 — fast + cheap). See platform.claude.com/docs for the latest IDs.
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -2563,7 +2563,10 @@ def _milo_send(question):
     except Exception as e:
         st.session_state.ask_history.append({"role": "assistant", "content": f"Sorry — I couldn't reach the model: {e}"})
 
-with st.expander("💬  Ask Milo — your STACK data assistant", expanded=False):
+if "milo_open" not in st.session_state: st.session_state.milo_open = False
+if st.button("✕ Close Milo" if st.session_state.milo_open else "💬 Ask Milo — your STACK data assistant", key="milo_toggle", use_container_width=True):
+    st.session_state.milo_open = not st.session_state.milo_open; st.rerun()
+if st.session_state.milo_open:
     st.caption("Read-only — Milo answers from a live summary of your data and can't change anything.")
     _milo_ready = True
     try:
