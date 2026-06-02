@@ -42,6 +42,7 @@ RESOURCE_ALLOC_COLUMNS = ["Alloc ID", "Team member", "Project ID", "Project name
 HOLIDAY_COLUMNS = ["Date", "Name"]
 LEAVE_COLUMNS = ["Leave ID", "Team member", "Date", "Type", "Notes"]
 LEAVE_TYPES = ["Annual leave", "Sick leave", "Unpaid leave", "Public holiday (personal)", "Other"]
+FIXED_TASK_NAMES = ["Admin", "WIP", "Design Team Meeting", "Red Dot Projects"]
 TIMESHEET_LOCK_PASSWORD = "test"
 
 TASK_TEAMS = ["Design", "Project Management"]
@@ -112,6 +113,20 @@ def milestone_progress(value):
     done = sum(1 for m in ms if m.endswith("✓") or m.startswith("[x]") or m.startswith("[X]") or m.lower().endswith("complete"))
     return int((done / len(ms)) * 100)
 
+def parse_milestones_struct(value):
+    out = []
+    for line in parse_milestones(value):
+        l = line.strip()
+        done = l.endswith("✓") or l.startswith("[x]") or l.startswith("[X]") or l.lower().endswith("complete")
+        text = l[3:].strip() if (l.startswith("[x]") or l.startswith("[X]")) else l
+        if text.endswith("✓"): text = text[:-1].strip()
+        out.append({"id": create_id(), "text": text, "done": done})
+    return out
+
+def serialize_milestones_struct(items):
+    return "\n".join(f"{it['text'].strip()} ✓" if it.get("done") else it["text"].strip()
+                     for it in items if (it.get("text") or "").strip())
+
 def parse_phase_schedule(value):
     phases = []
     if not value or pd.isna(value): return phases
@@ -128,6 +143,14 @@ def parse_phase_schedule(value):
     return phases
 
 def normalize_phase_schedule(value): return "\n".join(l.strip() for l in str(value).splitlines() if l.strip())
+
+def build_phase_schedule(phase_inputs):
+    lines = []
+    for stage in STAGES:
+        inc, sd, ed = phase_inputs[stage]
+        if inc and ed >= sd:
+            lines.append(f"{stage}: {sd.strftime('%Y-%m-%d')} to {ed.strftime('%Y-%m-%d')}")
+    return "\n".join(lines)
 
 def parse_date(value, fallback=None):
     p = pd.to_datetime(value, errors="coerce")
@@ -327,10 +350,12 @@ def avail_color(hours, capacity=40.0):
     if pct > 0.25: return ("#f39c12", "#ffffff")
     return ("#e74c3c", "#ffffff")
 
-def member_week_planned(member, week_str, allocs_df):
+def member_week_planned(member, week_str, allocs_df, exclude_names=None):
     if allocs_df is None or allocs_df.empty or "Projected hours" not in allocs_df.columns:
         return 0.0
     rows = allocs_df[(allocs_df["Team member"] == member) & (allocs_df["Week start"] == week_str)]
+    if exclude_names:
+        rows = rows[~rows["Project name"].isin(exclude_names)]
     if rows.empty: return 0.0
     vals = rows["Projected hours"]
     if isinstance(vals, pd.DataFrame): vals = vals.iloc[:, 0]
@@ -339,7 +364,7 @@ def member_week_planned(member, week_str, allocs_df):
     except (TypeError, ValueError):
         return 0.0
 
-def member_week_actual(member, week_str, timesheets_df):
+def member_week_actual(member, week_str, timesheets_df, exclude_names=None):
     if timesheets_df is None or timesheets_df.empty: return 0.0
     rows = timesheets_df[timesheets_df["Team member"] == member].copy()
     if rows.empty: return 0.0
@@ -347,6 +372,8 @@ def member_week_actual(member, week_str, timesheets_df):
     dt = pd.to_datetime(rows["Date"], errors="coerce")
     mask = ((dt >= ws) & (dt <= we)).fillna(False).astype(bool)
     sel = rows[mask]
+    if exclude_names:
+        sel = sel[~sel["Project name"].isin(exclude_names)]
     if sel.empty: return 0.0
     return round(sel["Hours"].apply(parse_budget).sum(), 2)
 
@@ -871,6 +898,13 @@ for key, default in [("message", ""), ("expanded_card", None), ("show_add_projec
                      ("res_week_offset", 0), ("res_plan_offset", 0), ("res_capacity", 40.0)]:
     if key not in st.session_state: st.session_state[key] = default
 
+# logo click → return to home (Project Tracker)
+if st.query_params.get("nav") == "home":
+    st.query_params.clear()
+    st.session_state.current_page = "Project Tracker"
+    st.session_state.page_selector = "Project Tracker"
+    st.rerun()
+
 member_names = st.session_state.members_df["Team member"].tolist()
 role_rates = get_role_rates(st.session_state.roles_df)
 company_names = st.session_state.companies["Name"].dropna().tolist()
@@ -879,10 +913,11 @@ company_names = st.session_state.companies["Name"].dropna().tolist()
 
 with st.sidebar:
     st.markdown(
-        "<div style='text-align:center;padding:0 0 18px;margin:-8px -8px 8px'>"
+        "<a href='?nav=home' target='_self' style='text-decoration:none'>"
+        "<div style='text-align:center;padding:0 0 18px;margin:-8px -8px 8px;cursor:pointer'>"
         "<img src='https://www.stack.co.nz/assets/Uploads/Logo/logo.png' "
         "style='width:100%;display:block;filter:brightness(0) invert(1)' alt='STACK Interiors'/>"
-        "</div>", unsafe_allow_html=True)
+        "</div></a>", unsafe_allow_html=True)
     page_index = PAGES.index(st.session_state.current_page) if st.session_state.current_page in PAGES else 0
     page = st.selectbox("Page", PAGES, index=page_index, key="page_selector")
     if page != st.session_state.current_page:
@@ -987,16 +1022,58 @@ if page == "Project Tracker":
         if selected != st.session_state.selected_project: st.session_state.selected_project = selected; st.rerun()
         if st.session_state.selected_project:
             selected = st.session_state.selected_project
-            if st.button("✕ Cancel", key="cancel_edit"): st.session_state.selected_project = ""; st.session_state.selectbox_key += 1; st.rerun()
             pidx = st.session_state.projects[st.session_state.projects["Project name"] == selected].index[0]
             cur = st.session_state.projects.loc[pidx].to_dict()
+            proj_id = cur.get("Project ID", "")
+            ms_key = f"ms_{proj_id}"
+
+            def _clear_edit_state():
+                st.session_state.pop(ms_key, None)
+                st.session_state.pop(f"team_{proj_id}_members", None)
+
+            if st.button("✕ Cancel", key="cancel_edit"):
+                _clear_edit_state(); st.session_state.selected_project = ""; st.session_state.selectbox_key += 1; st.rerun()
+
+            # ── live editor: team & weekly hours ──
+            st.markdown("**Team & weekly hours**")
+            sel_members = st.multiselect("Team members", member_names,
+                default=parse_team_members(cur.get("Team members", "")), key=f"team_{proj_id}_members")
+            existing_mh = parse_member_hours(cur.get("Member hours allocation", ""))
+            hours_vals = {}
+            if sel_members:
+                for m in sel_members:
+                    hc1, hc2 = st.columns([2, 1])
+                    hc1.markdown(f"<div style='padding-top:6px'>{m}</div>", unsafe_allow_html=True)
+                    hours_vals[m] = hc2.number_input(f"{m} hrs", min_value=0.0, step=1.0,
+                        value=float(existing_mh.get(m, 0.0)), key=f"team_{proj_id}_hrs_{m}", label_visibility="collapsed")
+            else:
+                st.caption("Pick team members to set their weekly hours.")
+
+            # ── live editor: milestones ──
+            st.markdown("**Milestones**")
+            if ms_key not in st.session_state:
+                st.session_state[ms_key] = parse_milestones_struct(cur.get("Milestones", ""))
+            ms_items = st.session_state[ms_key]
+            _rm = None
+            for it in ms_items:
+                mc0, mc1, mc2 = st.columns([0.6, 4, 0.6])
+                it["done"] = mc0.checkbox("done", value=it["done"], key=f"{ms_key}_done_{it['id']}", label_visibility="collapsed")
+                it["text"] = mc1.text_input("ms", value=it["text"], key=f"{ms_key}_text_{it['id']}", label_visibility="collapsed", placeholder="Milestone…")
+                if mc2.button("✕", key=f"{ms_key}_rm_{it['id']}"): _rm = it["id"]
+            if _rm is not None:
+                st.session_state[ms_key] = [x for x in ms_items if x["id"] != _rm]; st.rerun()
+            _tot = sum(1 for x in ms_items if x["text"].strip())
+            _dn = sum(1 for x in ms_items if x["done"] and x["text"].strip())
+            if _tot: st.progress(int(_dn / _tot * 100), text=f"{_dn}/{_tot} complete")
+            if st.button("＋ Add milestone", key=f"{ms_key}_add"):
+                ms_items.append({"id": create_id(), "text": "", "done": False}); st.rerun()
+
             with st.form("edit_project_form"):
                 st.text_input("Project ID", value=cur.get("Project ID", ""), disabled=True)
                 comp_opts = ["(none)"] + company_names; cur_comp = cur.get("Client", "")
                 e_company = st.selectbox("Client (company)", comp_opts, index=comp_opts.index(cur_comp) if cur_comp in comp_opts else 0)
                 e_location = st.text_input("Location", value=cur.get("Location", ""))
                 e_manager = st.text_input("Project manager", value=cur.get("Project manager", ""))
-                e_members = st.multiselect("Team members", member_names, default=parse_team_members(cur.get("Team members", "")))
                 c1, c2 = st.columns(2)
                 with c1: e_start = st.date_input("Start date", value=parse_date(cur.get("Start date"), pd.Timestamp.now().date()))
                 with c2: e_target = st.date_input("Target completion", value=parse_date(cur.get("Target completion"), pd.Timestamp.now().date()))
@@ -1006,9 +1083,19 @@ if page == "Project Tracker":
                 e_fee = st.number_input("Total fee ($)", min_value=0.0, step=100.0, value=parse_budget(cur.get("Fee", "0")), format="%f")
                 e_phase_fees = st.text_area("Phase fees", value=cur.get("Phase fees", ""), height=80)
                 e_weekly_hours = st.number_input("Weekly hours allocated", min_value=0.0, step=1.0, value=parse_weekly_hours(cur.get("Weekly hours allocated", "0")))
-                e_member_hours = st.text_area("Member hours allocation", value=cur.get("Member hours allocation", ""), height=80)
-                e_phase_schedule = st.text_area("Phase schedule", value=cur.get("Phase schedule", ""), height=80)
-                e_milestones = st.text_area("Milestones", value=cur.get("Milestones", ""), height=100)
+                st.markdown("**Phase schedule**")
+                st.caption("Tick the phases this project runs through, then pick start and finish dates.")
+                _pstart = parse_date(cur.get("Start date"), pd.Timestamp.now().date())
+                _pend = parse_date(cur.get("Target completion"), _pstart)
+                _existing = {p["Stage"]: p for p in parse_phase_schedule(cur.get("Phase schedule", ""))}
+                phase_inputs = {}
+                for stage in STAGES:
+                    ph = _existing.get(stage)
+                    ci, cs, ce = st.columns([1.6, 1, 1])
+                    inc = ci.checkbox(stage, value=ph is not None, key=f"e_phase_inc_{stage}")
+                    sd = cs.date_input("Start", value=ph["Start date"].date() if ph else _pstart, key=f"e_phase_start_{stage}", label_visibility="collapsed")
+                    ed = ce.date_input("Finish", value=ph["Target completion"].date() if ph else _pend, key=f"e_phase_end_{stage}", label_visibility="collapsed")
+                    phase_inputs[stage] = (inc, sd, ed)
                 e_compliance = st.multiselect("Compliance checklist", COMPLIANCE_TASKS, default=compliance_to_list(cur.get("Compliance checklist", "")))
                 e_notes = st.text_area("Notes", value=cur.get("Notes", ""), height=80)
                 st.progress(stage_progress(cur.get("Stage")))
@@ -1016,11 +1103,11 @@ if page == "Project Tracker":
                 comp_id = comp_row.iloc[0]["Company ID"] if not comp_row.empty else ""
                 upd = st.form_submit_button("Update project"); dlt = st.form_submit_button("Delete project")
                 if upd:
-                    st.session_state.projects = add_or_update_project({"Project ID": cur.get("Project ID", ""), "Project name": selected, "Client": e_company if e_company != "(none)" else "", "Company ID": comp_id, "Location": e_location, "Project manager": e_manager, "Start date": e_start.strftime("%Y-%m-%d"), "Target completion": e_target.strftime("%Y-%m-%d"), "Stage": e_stage, "Status": e_status, "Budget": str(e_budget), "Fee": str(e_fee), "Phase fees": e_phase_fees, "Weekly hours allocated": str(e_weekly_hours), "Member hours allocation": normalize_member_hours(parse_member_hours(e_member_hours)), "Phase schedule": normalize_phase_schedule(e_phase_schedule), "Milestones": normalize_milestones(e_milestones), "Team members": normalize_team_members(e_members), "Compliance checklist": normalize_checklist(e_compliance), "Notes": e_notes}, st.session_state.projects)
-                    save_projects(st.session_state.projects); st.session_state.message = f"Updated '{selected}'."; st.session_state.selected_project = ""; st.session_state.selectbox_key += 1; st.rerun()
+                    st.session_state.projects = add_or_update_project({"Project ID": cur.get("Project ID", ""), "Project name": selected, "Client": e_company if e_company != "(none)" else "", "Company ID": comp_id, "Location": e_location, "Project manager": e_manager, "Start date": e_start.strftime("%Y-%m-%d"), "Target completion": e_target.strftime("%Y-%m-%d"), "Stage": e_stage, "Status": e_status, "Budget": str(e_budget), "Fee": str(e_fee), "Phase fees": e_phase_fees, "Weekly hours allocated": str(e_weekly_hours), "Member hours allocation": normalize_member_hours({m: h for m, h in hours_vals.items() if h > 0}), "Phase schedule": build_phase_schedule(phase_inputs), "Milestones": serialize_milestones_struct(ms_items), "Team members": normalize_team_members(sel_members), "Compliance checklist": normalize_checklist(e_compliance), "Notes": e_notes}, st.session_state.projects)
+                    save_projects(st.session_state.projects); _clear_edit_state(); st.session_state.message = f"Updated '{selected}'."; st.session_state.selected_project = ""; st.session_state.selectbox_key += 1; st.rerun()
                 if dlt:
                     st.session_state.projects = st.session_state.projects[st.session_state.projects["Project name"] != selected]
-                    save_projects(st.session_state.projects); st.session_state.message = f"Deleted '{selected}'."; st.session_state.selected_project = ""; st.session_state.selectbox_key += 1; st.rerun()
+                    save_projects(st.session_state.projects); _clear_edit_state(); st.session_state.message = f"Deleted '{selected}'."; st.session_state.selected_project = ""; st.session_state.selectbox_key += 1; st.rerun()
     st.markdown("---")
     st.subheader("Project Timelines")
     view_tab1, view_tab2 = st.tabs(["📊 Gantt", "🟦 Cards"])
@@ -1032,8 +1119,46 @@ if page == "Project Tracker":
     col_add = st.container()
     with col_add:
         if st.button("▲ Close" if st.session_state.show_add_project else "＋ Add a new project", key="toggle_add_project", use_container_width=True):
+            if st.session_state.show_add_project:
+                st.session_state.new_reset = True
             st.session_state.show_add_project = not st.session_state.show_add_project; st.rerun()
         if st.session_state.show_add_project:
+            if st.session_state.get("new_reset"):
+                st.session_state.pop("new_team_members", None)
+                st.session_state.pop("new_ms", None)
+                for _m in member_names:
+                    st.session_state.pop(f"new_hrs_{_m}", None)
+                st.session_state.new_reset = False
+
+            # ── live editor: team & weekly hours ──
+            st.markdown("**Team & weekly hours**")
+            n_members = st.multiselect("Team members", member_names, key="new_team_members")
+            n_hours_vals = {}
+            if n_members:
+                for m in n_members:
+                    hc1, hc2 = st.columns([2, 1])
+                    hc1.markdown(f"<div style='padding-top:6px'>{m}</div>", unsafe_allow_html=True)
+                    n_hours_vals[m] = hc2.number_input(f"{m} hrs", min_value=0.0, step=1.0, value=0.0,
+                        key=f"new_hrs_{m}", label_visibility="collapsed")
+            else:
+                st.caption("Pick team members to set their weekly hours.")
+
+            # ── live editor: milestones ──
+            st.markdown("**Milestones**")
+            if "new_ms" not in st.session_state:
+                st.session_state["new_ms"] = []
+            n_ms_items = st.session_state["new_ms"]
+            _nrm = None
+            for it in n_ms_items:
+                mc0, mc1, mc2 = st.columns([0.6, 4, 0.6])
+                it["done"] = mc0.checkbox("done", value=it["done"], key=f"new_ms_done_{it['id']}", label_visibility="collapsed")
+                it["text"] = mc1.text_input("ms", value=it["text"], key=f"new_ms_text_{it['id']}", label_visibility="collapsed", placeholder="Milestone…")
+                if mc2.button("✕", key=f"new_ms_rm_{it['id']}"): _nrm = it["id"]
+            if _nrm is not None:
+                st.session_state["new_ms"] = [x for x in n_ms_items if x["id"] != _nrm]; st.rerun()
+            if st.button("＋ Add milestone", key="new_ms_add"):
+                n_ms_items.append({"id": create_id(), "text": "", "done": False}); st.rerun()
+
             with st.form("new_project_form"):
                 n_id = st.text_input("Project ID (leave blank to auto-generate)"); n_name = st.text_input("Project name")
                 comp_opts2 = ["(none)"] + company_names; n_company = st.selectbox("Client (company)", comp_opts2)
@@ -1045,15 +1170,22 @@ if page == "Project Tracker":
                 n_budget = st.number_input("Budget", min_value=0.0, step=100.0, format="%f")
                 n_fee = st.number_input("Total fee ($)", min_value=0.0, step=100.0, format="%f")
                 n_phase_fees = st.text_area("Phase fees", height=80); n_weekly_hours = st.number_input("Weekly hours allocated", min_value=0.0, step=1.0)
-                n_member_hours = st.text_area("Member hours allocation", height=80); n_phase_schedule = st.text_area("Phase schedule", height=80)
-                n_milestones = st.text_area("Milestones", height=80); n_members = st.multiselect("Team members", member_names)
+                st.markdown("**Phase schedule**")
+                st.caption("Tick the phases this project runs through, then pick start and finish dates.")
+                n_phase_inputs = {}
+                for stage in STAGES:
+                    ci, cs, ce = st.columns([1.6, 1, 1])
+                    inc = ci.checkbox(stage, value=False, key=f"n_phase_inc_{stage}")
+                    sd = cs.date_input("Start", value=n_start, key=f"n_phase_start_{stage}", label_visibility="collapsed")
+                    ed = ce.date_input("Finish", value=n_target, key=f"n_phase_end_{stage}", label_visibility="collapsed")
+                    n_phase_inputs[stage] = (inc, sd, ed)
                 n_compliance = st.multiselect("Compliance checklist", COMPLIANCE_TASKS); n_notes = st.text_area("Notes", height=80)
                 if st.form_submit_button("Save project", use_container_width=True):
                     if not n_name: st.warning("Please enter a project name.")
                     else:
                         comp_row2 = st.session_state.companies[st.session_state.companies["Name"] == n_company]
-                        st.session_state.projects = add_or_update_project({"Project ID": n_id, "Project name": n_name, "Client": n_company if n_company != "(none)" else "", "Company ID": comp_row2.iloc[0]["Company ID"] if not comp_row2.empty else "", "Location": n_location, "Project manager": n_manager, "Start date": n_start.strftime("%Y-%m-%d"), "Target completion": n_target.strftime("%Y-%m-%d"), "Stage": n_stage, "Status": n_status, "Budget": str(n_budget), "Fee": str(n_fee), "Phase fees": n_phase_fees, "Weekly hours allocated": str(n_weekly_hours), "Member hours allocation": normalize_member_hours(parse_member_hours(n_member_hours)), "Phase schedule": normalize_phase_schedule(n_phase_schedule), "Milestones": normalize_milestones(n_milestones), "Team members": normalize_team_members(n_members), "Compliance checklist": normalize_checklist(n_compliance), "Notes": n_notes}, st.session_state.projects)
-                        save_projects(st.session_state.projects); st.session_state.message = f"Saved '{n_name}'."; st.session_state.show_add_project = False; st.rerun()
+                        st.session_state.projects = add_or_update_project({"Project ID": n_id, "Project name": n_name, "Client": n_company if n_company != "(none)" else "", "Company ID": comp_row2.iloc[0]["Company ID"] if not comp_row2.empty else "", "Location": n_location, "Project manager": n_manager, "Start date": n_start.strftime("%Y-%m-%d"), "Target completion": n_target.strftime("%Y-%m-%d"), "Stage": n_stage, "Status": n_status, "Budget": str(n_budget), "Fee": str(n_fee), "Phase fees": n_phase_fees, "Weekly hours allocated": str(n_weekly_hours), "Member hours allocation": normalize_member_hours({m: h for m, h in n_hours_vals.items() if h > 0}), "Phase schedule": build_phase_schedule(n_phase_inputs), "Milestones": serialize_milestones_struct(n_ms_items), "Team members": normalize_team_members(n_members), "Compliance checklist": normalize_checklist(n_compliance), "Notes": n_notes}, st.session_state.projects)
+                        save_projects(st.session_state.projects); st.session_state.message = f"Saved '{n_name}'."; st.session_state.show_add_project = False; st.session_state.new_reset = True; st.rerun()
 
 # ── TASK TRACKER ──────────────────────────────────────────────────────────────
 
@@ -1879,7 +2011,7 @@ elif page == "Resourcing":
                 st.success(f"Projected hours saved for {plan_member}."); st.rerun()
 
     with tab_compare:
-        st.markdown("Compare **projected** hours (from planning) against **actual** hours logged in timesheets.")
+        st.markdown("Compare **projected** hours against **actual** hours logged in timesheets. Non-billable overhead (Admin, WIP, Design Team Meeting, Red Dot Projects) is excluded.")
         cc = st.columns([2, 0.5, 2.5, 0.5])
         cmp_member = cc[0].selectbox("Team member", ["All members"] + member_names, key="res_cmp_member")
         if cc[1].button("◀", key="res_cmp_prev"): st.session_state.res_week_offset -= 1; st.rerun()
@@ -1892,11 +2024,11 @@ elif page == "Resourcing":
         rows = []
         for w in cmp_weeks:
             if cmp_member == "All members":
-                proj = sum(member_week_planned(m, w["start_str"], allocs) for m in member_names)
-                act = sum(member_week_actual(m, w["start_str"], ts) for m in member_names)
+                proj = sum(member_week_planned(m, w["start_str"], allocs, exclude_names=FIXED_TASK_NAMES) for m in member_names)
+                act = sum(member_week_actual(m, w["start_str"], ts, exclude_names=FIXED_TASK_NAMES) for m in member_names)
             else:
-                proj = member_week_planned(cmp_member, w["start_str"], allocs)
-                act = member_week_actual(cmp_member, w["start_str"], ts)
+                proj = member_week_planned(cmp_member, w["start_str"], allocs, exclude_names=FIXED_TASK_NAMES)
+                act = member_week_actual(cmp_member, w["start_str"], ts, exclude_names=FIXED_TASK_NAMES)
             rows.append({"Week": w["label"], "Projected": round(proj, 1), "Actual": round(act, 1), "Variance": round(act - proj, 1)})
         cmp_df = pd.DataFrame(rows)
 
