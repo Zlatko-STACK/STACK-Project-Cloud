@@ -2589,45 +2589,42 @@ def _milo_send(question):
     except Exception as e:
         st.session_state.ask_history.append({"role": "assistant", "content": f"Sorry — I couldn't reach the model: {e}"})
 
-with st.popover("💬", use_container_width=False):
-    st.markdown(
-        "<div class='milo-header'><div class='milo-avatar'>M</div>"
-        "<div><div class='milo-name'>Milo</div><div class='milo-sub'>STACK data assistant · read-only</div></div></div>",
-        unsafe_allow_html=True)
-
+with st.expander("💬  Ask Milo — your STACK data assistant", expanded=False):
+    st.caption("Read-only — Milo answers from a live summary of your data and can't change anything.")
     _milo_ready = True
     try:
         import anthropic  # noqa: F401
     except ImportError:
-        st.error("`anthropic` not installed — add it to requirements.txt and reinstall."); _milo_ready = False
+        st.error("`anthropic` isn't installed — add it to requirements.txt and reboot the app."); _milo_ready = False
     if _milo_ready:
         try: _has_key = bool(st.secrets["ANTHROPIC_API_KEY"])
         except Exception: _has_key = False
         if not _has_key:
-            st.info("Add `ANTHROPIC_API_KEY` to `.streamlit/secrets.toml`, then reload."); _milo_ready = False
+            st.info("Add `ANTHROPIC_API_KEY` in Manage app → Settings → Secrets, then reboot."); _milo_ready = False
 
     if _milo_ready:
         if "ask_history" not in st.session_state: st.session_state.ask_history = []
-
-        chat_box = st.container(height=300)
-        with chat_box:
+        box = st.container(height=300)
+        with box:
             if not st.session_state.ask_history:
-                st.markdown("<div style='color:#6b6b6b;font-size:13px;padding:4px 2px'>Hi, I'm Milo 👋 Ask me about your projects, hours, resourcing or clients — or tap a question below.</div>", unsafe_allow_html=True)
+                st.markdown("<div style='color:#6b6b6b;font-size:13px'>Hi, I'm Milo 👋 Ask about your projects, hours, resourcing or clients — or tap a question below.</div>", unsafe_allow_html=True)
             for msg in st.session_state.ask_history:
                 with st.chat_message(msg["role"], avatar=("🟡" if msg["role"] == "assistant" else None)):
                     st.markdown(msg["content"])
-
         if not st.session_state.ask_history:
+            scols = st.columns(2)
             for i, s in enumerate(MILO_STARTERS):
-                if st.button(s, key=f"milo_starter_{i}", use_container_width=True):
+                if scols[i % 2].button(s, key=f"milo_starter_{i}", use_container_width=True):
                     _milo_send(s); st.rerun()
         else:
-            if st.button("🧹 Clear chat", key="milo_clear", use_container_width=True):
+            if st.button("🧹 Clear chat", key="milo_clear"):
                 st.session_state.ask_history = []; st.rerun()
-
-        q = st.chat_input("Ask Milo…", key="milo_input")
-        if q:
-            _milo_send(q); st.rerun()
+        with st.form("milo_form", clear_on_submit=True):
+            fc1, fc2 = st.columns([5, 1])
+            _q = fc1.text_input("Ask Milo…", key="milo_q", label_visibility="collapsed", placeholder="Ask Milo a question…")
+            _sent = fc2.form_submit_button("Send", use_container_width=True)
+            if _sent and _q.strip():
+                _milo_send(_q.strip()); st.rerun()
 
 # ── footer ────────────────────────────────────────────────────────────────────
 
