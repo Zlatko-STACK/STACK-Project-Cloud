@@ -60,7 +60,6 @@ DEFAULT_ROLES = {"Technician": 85.0, "Graduate": 95.0, "Intermediate Designer": 
                  "Project Manager": 140.0, "Site Manager": 130.0, "Quantity Surveyor": 125.0, "Director": 200.0}
 
 PAGES = ["Dashboard", "Projects", "Task Tracker", "Timesheets", "Fee Estimator", "Clients", "Resourcing"]
-ASK_MODEL = "claude-3-5-sonnet-latest"  # update to the current model name from docs.claude.com if a call fails; -haiku-latest is cheaper
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -817,77 +816,6 @@ def filter_projects(df, stage_filter, status_filter, search_text):
         s = search_text.lower()
         f = f[f["Project name"].str.lower().str.contains(s, na=False) | f["Client"].str.lower().str.contains(s, na=False) | f["Location"].str.lower().str.contains(s, na=False)]
     return f
-
-def build_ask_context():
-    proj = st.session_state.projects; ts = st.session_state.timesheets; tasks = st.session_state.tasks
-    rates = get_role_rates(st.session_state.roles_df)
-    members = st.session_state.members_df["Team member"].tolist()
-    today = pd.Timestamp.now().normalize()
-    L = [f"Date today: {today.strftime('%Y-%m-%d')}", f"Team members: {', '.join(members) or 'none'}"]
-
-    L.append("\n## PROJECTS")
-    if proj.empty: L.append("(none)")
-    for _, p in proj.iterrows():
-        pid = p["Project ID"]; fee = parse_budget(p.get("Fee", "0"))
-        consumed = project_fee_consumed(pid, ts, rates); hours = project_hours_logged(pid, ts)
-        pct = round(consumed / fee * 100, 1) if fee > 0 else 0
-        tm = ", ".join(parse_team_members(p.get("Team members", "")))
-        L.append(f"- {p['Project name']} | client: {p.get('Client') or '—'} | stage: {p.get('Stage')} | "
-                 f"status: {p.get('Status')} | fee ${fee:,.0f} | hours logged {hours} | fee used {pct}% | "
-                 f"milestones {milestone_progress(p.get('Milestones',''))}% | PM: {p.get('Project manager') or '—'} | "
-                 f"team: {tm or '—'} | start {p.get('Start date')} target {p.get('Target completion')}")
-
-    L.append("\n## TASKS")
-    if tasks.empty: L.append("(none)")
-    else:
-        for s in TASK_STATUSES: L.append(f"- {s}: {len(tasks[tasks['Status']==s])}")
-        ong = tasks[tasks["Status"] == "Ongoing"]
-        if not ong.empty:
-            L.append("Ongoing tasks:")
-            for _, t in ong.head(40).iterrows():
-                L.append(f"  - {t['Task name']} ({t['Project name']}) — {t['Assigned to'] or 'unassigned'}")
-
-    L.append("\n## HOURS LOGGED — by team member (all time)")
-    if ts.empty: L.append("(none)")
-    else:
-        for m, h in ts.groupby("Team member")["Hours"].apply(lambda g: round(g.apply(parse_budget).sum(), 1)).sort_values(ascending=False).items():
-            L.append(f"- {m}: {h}h")
-    L.append("\n## HOURS LOGGED — by project (all time)")
-    if not ts.empty:
-        for pn, h in ts.groupby("Project name")["Hours"].apply(lambda g: round(g.apply(parse_budget).sum(), 1)).sort_values(ascending=False).items():
-            L.append(f"- {pn}: {h}h")
-
-    L.append("\n## RESOURCING — this week")
-    hol = holiday_dates_set(st.session_state.holidays)
-    cur_monday = today - pd.Timedelta(days=today.weekday())
-    wk = {"start": cur_monday, "workdays": week_workdays(cur_monday, hol)}
-    cap = float(st.session_state.res_capacity); allocs = st.session_state.resource_allocs
-    for m in members:
-        wcap, _, _ = member_week_capacity(wk, cap, leave_dates_for_member(m, st.session_state.leave), hol)
-        planned = member_week_planned(m, cur_monday.strftime("%Y-%m-%d"), allocs)
-        L.append(f"- {m}: planned {planned}h of {wcap:.0f}h capacity ({'OVER CAPACITY' if planned > wcap else 'ok'})")
-
-    L.append("\n## CLIENTS")
-    co = st.session_state.companies
-    for s in CLIENT_STATUSES: L.append(f"- {s}: {len(co[co['Status']==s])}")
-
-    L.append("\n## BUILDINGS")
-    name_by_id = dict(zip(co["Company ID"], co["Name"]))
-    if st.session_state.buildings.empty: L.append("(none)")
-    for _, b in st.session_state.buildings.iterrows():
-        bt = st.session_state.tenancies[st.session_state.tenancies["Building ID"] == b["Building ID"]]
-        sqm = sum(parse_budget(x) for x in bt["Sqm"].tolist())
-        occ = [f"{name_by_id.get(t['Company ID'],'?')} ({t.get('Floor') or 'floor n/a'}, {parse_budget(t.get('Sqm','0')):.0f}m²)" for _, t in bt.iterrows()]
-        L.append(f"- {b['Name']} ({b.get('Address') or 'no address'}): {bt['Company ID'].nunique()} clients, {sqm:.0f} m² total — {'; '.join(occ) or 'no tenancies'}")
-
-    L.append("\n## UPCOMING LEAVE (next 30 days)")
-    lv = st.session_state.leave.copy()
-    if not lv.empty:
-        lv["_dt"] = pd.to_datetime(lv["Date"], errors="coerce")
-        up = lv[(lv["_dt"] >= today) & (lv["_dt"] <= today + pd.Timedelta(days=30))]
-        for m in up["Team member"].unique():
-            L.append(f"- {m}: {len(up[up['Team member']==m])} day(s)")
-    return "\n".join(L)
 
 # ── app setup ─────────────────────────────────────────────────────────────────
 
@@ -2534,64 +2462,6 @@ elif page == "Resourcing":
                     if rcols[2].button("🗑", key=f"del_hol_{h['Date']}_{h['Name'][:6]}"):
                         st.session_state.holidays = st.session_state.holidays[~((st.session_state.holidays["Date"] == h["Date"]) & (st.session_state.holidays["Name"] == h["Name"]))]
                         save_holidays(st.session_state.holidays); st.rerun()
-
-# ── Milo (floating popover, all pages) ────────────────────────────────────────
-
-st.markdown("""
-<style>
-div[data-testid="stPopover"]:has(button[data-testid="stPopoverButton"]) { position: fixed; bottom: 24px; right: 24px; z-index: 1000; }
-div[data-testid="stPopover"] button[data-testid="stPopoverButton"] {
-    border-radius: 28px !important; background: #1a1a1a !important; color: #F2C94C !important;
-    border: none !important; font-weight: 700 !important; padding: 10px 20px !important;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.25) !important; }
-div[data-testid="stPopover"] button[data-testid="stPopoverButton"]:hover { background: #2c2c2c !important; }
-</style>
-""", unsafe_allow_html=True)
-
-with st.popover("💬 Ask Milo", use_container_width=False):
-    st.markdown("**Milo** · STACK data assistant")
-    st.caption("Read-only — answers from a live summary of your data.")
-    _milo_ready = True
-    try:
-        import anthropic
-    except ImportError:
-        st.error("`anthropic` not installed — add it to requirements.txt and reinstall."); _milo_ready = False
-    api_key = ""
-    if _milo_ready:
-        try: api_key = st.secrets["ANTHROPIC_API_KEY"]
-        except Exception: api_key = ""
-        if not api_key:
-            st.info("Add `ANTHROPIC_API_KEY` to `.streamlit/secrets.toml`, then reload."); _milo_ready = False
-
-    if _milo_ready:
-        if "ask_history" not in st.session_state: st.session_state.ask_history = []
-        mc1, mc2 = st.columns([3, 1])
-        mc1.caption("Try: which projects are at risk? · who's over capacity?")
-        if mc2.button("🧹 Clear", key="milo_clear", use_container_width=True):
-            st.session_state.ask_history = []; st.rerun()
-        chat_box = st.container(height=320)
-        with chat_box:
-            for msg in st.session_state.ask_history:
-                with st.chat_message(msg["role"]): st.markdown(msg["content"])
-        q = st.chat_input("Ask Milo…", key="milo_input")
-        if q:
-            st.session_state.ask_history.append({"role": "user", "content": q})
-            system = (
-                "You are Milo, a friendly assistant for STACK, an interior fit-out firm, answering staff questions about "
-                "their project-management data. Answer ONLY using the DATA SUMMARY below. If something isn't in it, say you "
-                "don't have that detail rather than guessing. Be concise and use the actual numbers. Never invent projects, "
-                "people, clients or figures. You are read-only: if asked to change anything, explain you can't and point "
-                "them to the relevant page.\n\n=== DATA SUMMARY ===\n" + build_ask_context()
-            )
-            msgs = [{"role": m["role"], "content": m["content"]} for m in st.session_state.ask_history]
-            try:
-                _client = anthropic.Anthropic(api_key=api_key)
-                _resp = _client.messages.create(model=ASK_MODEL, max_tokens=1000, system=system, messages=msgs)
-                _answer = "".join(b.text for b in _resp.content if b.type == "text")
-                st.session_state.ask_history.append({"role": "assistant", "content": _answer})
-            except Exception as e:
-                st.session_state.ask_history.append({"role": "assistant", "content": f"Sorry — I couldn't reach the model: {e}"})
-            st.rerun()
 
 # ── footer ────────────────────────────────────────────────────────────────────
 
