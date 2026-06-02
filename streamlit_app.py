@@ -21,6 +21,8 @@ CONTACTS_FILE = Path(__file__).parent / "contacts.csv"
 RESOURCE_ALLOC_FILE = Path(__file__).parent / "resource_allocations.csv"
 HOLIDAYS_FILE = Path(__file__).parent / "holidays.csv"
 LEAVE_FILE = Path(__file__).parent / "leave.csv"
+BUILDINGS_FILE = Path(__file__).parent / "buildings.csv"
+TENANCY_FILE = Path(__file__).parent / "building_tenancies.csv"
 
 STAGES = ["Concept", "Design Development", "Tender", "Construction", "Handover", "Code of Compliance"]
 STATUSES = ["On track", "At risk", "Delayed", "Complete"]
@@ -41,6 +43,8 @@ INVOICE_LINE_COLUMNS = ["Line ID", "Invoice ID", "Description", "Quantity", "Uni
 RESOURCE_ALLOC_COLUMNS = ["Alloc ID", "Team member", "Project ID", "Project name", "Week start", "Projected hours", "Last updated"]
 HOLIDAY_COLUMNS = ["Date", "Name"]
 LEAVE_COLUMNS = ["Leave ID", "Team member", "Date", "Type", "Notes"]
+BUILDING_COLUMNS = ["Building ID", "Name", "Address", "Notes", "Created", "Last updated"]
+TENANCY_COLUMNS = ["Tenancy ID", "Building ID", "Company ID", "Floor", "Sqm", "Notes"]
 LEAVE_TYPES = ["Annual leave", "Sick leave", "Unpaid leave", "Public holiday (personal)", "Other"]
 FIXED_TASK_NAMES = ["Admin", "WIP", "Design Team Meeting", "Red Dot Projects"]
 TIMESHEET_LOCK_PASSWORD = "test"
@@ -55,7 +59,7 @@ REFERRAL_SOURCES = ["Word of mouth", "Website", "Social media", "Returning clien
 DEFAULT_ROLES = {"Technician": 85.0, "Graduate": 95.0, "Intermediate Designer": 120.0, "Senior Designer": 150.0,
                  "Project Manager": 140.0, "Site Manager": 130.0, "Quantity Surveyor": 125.0, "Director": 200.0}
 
-PAGES = ["Project Tracker", "Task Tracker", "Timesheets", "Fee Estimator", "Clients", "Resourcing"]
+PAGES = ["Dashboard", "Projects", "Task Tracker", "Timesheets", "Fee Estimator", "Clients", "Resourcing"]
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -246,6 +250,10 @@ def load_holidays(): return load_df(HOLIDAYS_FILE, HOLIDAY_COLUMNS)
 def save_holidays(df): df.to_csv(HOLIDAYS_FILE, index=False)
 def load_leave(): return load_df(LEAVE_FILE, LEAVE_COLUMNS)
 def save_leave(df): df.to_csv(LEAVE_FILE, index=False)
+def load_buildings(): return load_df(BUILDINGS_FILE, BUILDING_COLUMNS)
+def save_buildings(df): df.to_csv(BUILDINGS_FILE, index=False)
+def load_tenancies(): return load_df(TENANCY_FILE, TENANCY_COLUMNS)
+def save_tenancies(df): df.to_csv(TENANCY_FILE, index=False)
 
 def holiday_dates_set(holidays_df):
     out = set()
@@ -881,7 +889,8 @@ for key, loader in [("projects", load_projects), ("members_df", load_team_member
                     ("tasks", load_tasks), ("timesheets", load_timesheets), ("estimates", load_estimates),
                     ("estimate_lines", load_estimate_lines), ("estimate_disb", load_estimate_disb),
                     ("companies", load_companies), ("contacts", load_contacts),
-                    ("resource_allocs", load_resource_allocs), ("holidays", load_holidays), ("leave", load_leave)]:
+                    ("resource_allocs", load_resource_allocs), ("holidays", load_holidays), ("leave", load_leave),
+                    ("buildings", load_buildings), ("tenancies", load_tenancies)]:
     if key not in st.session_state: st.session_state[key] = loader()
 
 if "invoices" not in st.session_state:
@@ -893,16 +902,17 @@ for key, default in [("message", ""), ("expanded_card", None), ("show_add_projec
                      ("show_team_management", False), ("selected_project", ""), ("selectbox_key", 0),
                      ("expanded_task", None), ("expanded_ts_entry", None), ("expanded_member", None),
                      ("active_estimate_id", None), ("active_company_id", None), ("active_contact_id", None),
-                     ("client_tab", "Companies"), ("current_page", "Project Tracker"),
+                     ("active_building_id", None), ("active_project_view", ""),
+                     ("client_tab", "Companies"), ("current_page", "Dashboard"),
                      ("wt_unlock_member", None), ("wt_unlock_week", None), ("wt_show_unlock", False),
                      ("res_week_offset", 0), ("res_plan_offset", 0), ("res_capacity", 40.0)]:
     if key not in st.session_state: st.session_state[key] = default
 
-# logo click → return to home (Project Tracker)
+# logo click → return to home (Dashboard)
 if st.query_params.get("nav") == "home":
     st.query_params.clear()
-    st.session_state.current_page = "Project Tracker"
-    st.session_state.page_selector = "Project Tracker"
+    st.session_state.current_page = "Dashboard"
+    st.session_state.page_selector = "Dashboard"
     st.rerun()
 
 member_names = st.session_state.members_df["Team member"].tolist()
@@ -923,7 +933,7 @@ with st.sidebar:
     if page != st.session_state.current_page:
         st.session_state.current_page = page; st.rerun()
 
-    if page == "Project Tracker":
+    if page == "Dashboard":
         st.header("Filters")
         selected_stages = [s for s in st.multiselect("Stage", ["All"] + STAGES, default=["All"]) if s != "All"]
         selected_status = [s for s in st.multiselect("Status", ["All"] + STATUSES, default=["All"]) if s != "All"]
@@ -932,6 +942,10 @@ with st.sidebar:
         st.metric("Total projects", n)
         st.metric("Total budget", format_budget(st.session_state.projects["Budget"].apply(parse_budget).sum()))
         st.metric("Avg compliance", f"{int(st.session_state.projects['Compliance checklist'].apply(compliance_progress).mean() if n else 0)}%")
+        for s in STATUSES: st.write(f"- {s}: {st.session_state.projects['Status'].value_counts().to_dict().get(s, 0)}")
+    elif page == "Projects":
+        st.header("Projects")
+        st.metric("Total projects", len(st.session_state.projects))
         for s in STATUSES: st.write(f"- {s}: {st.session_state.projects['Status'].value_counts().to_dict().get(s, 0)}")
     elif page == "Task Tracker":
         st.header("Task filters")
@@ -969,11 +983,13 @@ with st.sidebar:
     elif page == "Clients":
         st.header("Clients")
         st.metric("Companies", len(st.session_state.companies)); st.metric("Contacts", len(st.session_state.contacts))
+        st.metric("Buildings", len(st.session_state.buildings))
         st.markdown("---")
         for s in CLIENT_STATUSES: st.write(f"- {s}: {st.session_state.companies['Status'].value_counts().to_dict().get(s, 0)}")
         st.markdown("---")
         if st.button("＋ New company", use_container_width=True): st.session_state.active_company_id = "new"; st.rerun()
         if st.button("＋ New contact", use_container_width=True): st.session_state.active_contact_id = "new"; st.rerun()
+        if st.button("＋ New building", use_container_width=True): st.session_state.active_building_id = "new"; st.rerun()
     elif page == "Resourcing":
         st.header("Resourcing")
         cap = st.number_input("Weekly capacity (hrs)", min_value=1.0, max_value=80.0, value=float(st.session_state.res_capacity), step=1.0, key="res_cap_input")
@@ -997,22 +1013,24 @@ with st.sidebar:
         st.markdown("---")
         st.caption("🟩 plenty free  🟨 getting full  🟥 nearly full  ⬛ over capacity")
 
-# ── PROJECT TRACKER ───────────────────────────────────────────────────────────
+# ── DASHBOARD ─────────────────────────────────────────────────────────────────
 
-if page == "Project Tracker":
+if page == "Dashboard":
     filtered = filter_projects(st.session_state.projects, selected_stages, selected_status, search_query)
     display = filtered.copy()
     display["_sort"] = pd.to_datetime(display["Last updated"], errors="coerce")
     display = display.sort_values("_sort", ascending=False, na_position="last").drop(columns=["_sort"])
     display["Compliance %"] = display["Compliance checklist"].apply(compliance_progress)
     display["Milestone %"] = display["Milestones"].apply(milestone_progress)
-    display["Budget"] = display["Budget"].apply(format_budget)
-    show_cols = [c for c in COLUMNS if c != "Company ID"] + ["Compliance %", "Milestone %"]
+    hidden = {"Company ID", "Budget", "Fee", "Phase schedule", "Phase fees", "Member hours allocation"}
+    show_cols = [c for c in COLUMNS if c not in hidden] + ["Compliance %", "Milestone %"]
     left, right = st.columns([2, 1])
     with left:
         st.subheader("Active projects")
         if display.empty: st.info("No projects match the filters.")
         else: st.dataframe(display[show_cols].fillna(""), use_container_width=True, hide_index=True)
+        if st.button("📂 Open Projects workspace →", use_container_width=True, key="goto_projects"):
+            st.session_state.current_page = "Projects"; st.rerun()
     with right:
         st.subheader("Update an existing project")
         proj_options = [""] + st.session_state.projects["Project name"].dropna().unique().tolist()
@@ -1034,20 +1052,10 @@ if page == "Project Tracker":
             if st.button("✕ Cancel", key="cancel_edit"):
                 _clear_edit_state(); st.session_state.selected_project = ""; st.session_state.selectbox_key += 1; st.rerun()
 
-            # ── live editor: team & weekly hours ──
-            st.markdown("**Team & weekly hours**")
+            # ── live editor: team ──
+            st.markdown("**Team members**")
             sel_members = st.multiselect("Team members", member_names,
-                default=parse_team_members(cur.get("Team members", "")), key=f"team_{proj_id}_members")
-            existing_mh = parse_member_hours(cur.get("Member hours allocation", ""))
-            hours_vals = {}
-            if sel_members:
-                for m in sel_members:
-                    hc1, hc2 = st.columns([2, 1])
-                    hc1.markdown(f"<div style='padding-top:6px'>{m}</div>", unsafe_allow_html=True)
-                    hours_vals[m] = hc2.number_input(f"{m} hrs", min_value=0.0, step=1.0,
-                        value=float(existing_mh.get(m, 0.0)), key=f"team_{proj_id}_hrs_{m}", label_visibility="collapsed")
-            else:
-                st.caption("Pick team members to set their weekly hours.")
+                default=parse_team_members(cur.get("Team members", "")), key=f"team_{proj_id}_members", label_visibility="collapsed")
 
             # ── live editor: milestones ──
             st.markdown("**Milestones**")
@@ -1081,7 +1089,6 @@ if page == "Project Tracker":
                 e_status = st.selectbox("Status", STATUSES, index=STATUSES.index(cur.get("Status")) if cur.get("Status") in STATUSES else 0)
                 e_budget = st.number_input("Budget", min_value=0.0, step=100.0, value=parse_budget(cur.get("Budget", "0")), format="%f")
                 e_fee = st.number_input("Total fee ($)", min_value=0.0, step=100.0, value=parse_budget(cur.get("Fee", "0")), format="%f")
-                e_phase_fees = st.text_area("Phase fees", value=cur.get("Phase fees", ""), height=80)
                 e_weekly_hours = st.number_input("Weekly hours allocated", min_value=0.0, step=1.0, value=parse_weekly_hours(cur.get("Weekly hours allocated", "0")))
                 st.markdown("**Phase schedule**")
                 st.caption("Tick the phases this project runs through, then pick start and finish dates.")
@@ -1103,7 +1110,7 @@ if page == "Project Tracker":
                 comp_id = comp_row.iloc[0]["Company ID"] if not comp_row.empty else ""
                 upd = st.form_submit_button("Update project"); dlt = st.form_submit_button("Delete project")
                 if upd:
-                    st.session_state.projects = add_or_update_project({"Project ID": cur.get("Project ID", ""), "Project name": selected, "Client": e_company if e_company != "(none)" else "", "Company ID": comp_id, "Location": e_location, "Project manager": e_manager, "Start date": e_start.strftime("%Y-%m-%d"), "Target completion": e_target.strftime("%Y-%m-%d"), "Stage": e_stage, "Status": e_status, "Budget": str(e_budget), "Fee": str(e_fee), "Phase fees": e_phase_fees, "Weekly hours allocated": str(e_weekly_hours), "Member hours allocation": normalize_member_hours({m: h for m, h in hours_vals.items() if h > 0}), "Phase schedule": build_phase_schedule(phase_inputs), "Milestones": serialize_milestones_struct(ms_items), "Team members": normalize_team_members(sel_members), "Compliance checklist": normalize_checklist(e_compliance), "Notes": e_notes}, st.session_state.projects)
+                    st.session_state.projects = add_or_update_project({"Project ID": cur.get("Project ID", ""), "Project name": selected, "Client": e_company if e_company != "(none)" else "", "Company ID": comp_id, "Location": e_location, "Project manager": e_manager, "Start date": e_start.strftime("%Y-%m-%d"), "Target completion": e_target.strftime("%Y-%m-%d"), "Stage": e_stage, "Status": e_status, "Budget": str(e_budget), "Fee": str(e_fee), "Weekly hours allocated": str(e_weekly_hours), "Phase schedule": build_phase_schedule(phase_inputs), "Milestones": serialize_milestones_struct(ms_items), "Team members": normalize_team_members(sel_members), "Compliance checklist": normalize_checklist(e_compliance), "Notes": e_notes}, st.session_state.projects)
                     save_projects(st.session_state.projects); _clear_edit_state(); st.session_state.message = f"Updated '{selected}'."; st.session_state.selected_project = ""; st.session_state.selectbox_key += 1; st.rerun()
                 if dlt:
                     st.session_state.projects = st.session_state.projects[st.session_state.projects["Project name"] != selected]
@@ -1126,22 +1133,11 @@ if page == "Project Tracker":
             if st.session_state.get("new_reset"):
                 st.session_state.pop("new_team_members", None)
                 st.session_state.pop("new_ms", None)
-                for _m in member_names:
-                    st.session_state.pop(f"new_hrs_{_m}", None)
                 st.session_state.new_reset = False
 
-            # ── live editor: team & weekly hours ──
-            st.markdown("**Team & weekly hours**")
-            n_members = st.multiselect("Team members", member_names, key="new_team_members")
-            n_hours_vals = {}
-            if n_members:
-                for m in n_members:
-                    hc1, hc2 = st.columns([2, 1])
-                    hc1.markdown(f"<div style='padding-top:6px'>{m}</div>", unsafe_allow_html=True)
-                    n_hours_vals[m] = hc2.number_input(f"{m} hrs", min_value=0.0, step=1.0, value=0.0,
-                        key=f"new_hrs_{m}", label_visibility="collapsed")
-            else:
-                st.caption("Pick team members to set their weekly hours.")
+            # ── live editor: team ──
+            st.markdown("**Team members**")
+            n_members = st.multiselect("Team members", member_names, key="new_team_members", label_visibility="collapsed")
 
             # ── live editor: milestones ──
             st.markdown("**Milestones**")
@@ -1169,7 +1165,7 @@ if page == "Project Tracker":
                 n_stage = st.selectbox("Stage", STAGES); n_status = st.selectbox("Status", STATUSES)
                 n_budget = st.number_input("Budget", min_value=0.0, step=100.0, format="%f")
                 n_fee = st.number_input("Total fee ($)", min_value=0.0, step=100.0, format="%f")
-                n_phase_fees = st.text_area("Phase fees", height=80); n_weekly_hours = st.number_input("Weekly hours allocated", min_value=0.0, step=1.0)
+                n_weekly_hours = st.number_input("Weekly hours allocated", min_value=0.0, step=1.0)
                 st.markdown("**Phase schedule**")
                 st.caption("Tick the phases this project runs through, then pick start and finish dates.")
                 n_phase_inputs = {}
@@ -1184,8 +1180,116 @@ if page == "Project Tracker":
                     if not n_name: st.warning("Please enter a project name.")
                     else:
                         comp_row2 = st.session_state.companies[st.session_state.companies["Name"] == n_company]
-                        st.session_state.projects = add_or_update_project({"Project ID": n_id, "Project name": n_name, "Client": n_company if n_company != "(none)" else "", "Company ID": comp_row2.iloc[0]["Company ID"] if not comp_row2.empty else "", "Location": n_location, "Project manager": n_manager, "Start date": n_start.strftime("%Y-%m-%d"), "Target completion": n_target.strftime("%Y-%m-%d"), "Stage": n_stage, "Status": n_status, "Budget": str(n_budget), "Fee": str(n_fee), "Phase fees": n_phase_fees, "Weekly hours allocated": str(n_weekly_hours), "Member hours allocation": normalize_member_hours({m: h for m, h in n_hours_vals.items() if h > 0}), "Phase schedule": build_phase_schedule(n_phase_inputs), "Milestones": serialize_milestones_struct(n_ms_items), "Team members": normalize_team_members(n_members), "Compliance checklist": normalize_checklist(n_compliance), "Notes": n_notes}, st.session_state.projects)
+                        st.session_state.projects = add_or_update_project({"Project ID": n_id, "Project name": n_name, "Client": n_company if n_company != "(none)" else "", "Company ID": comp_row2.iloc[0]["Company ID"] if not comp_row2.empty else "", "Location": n_location, "Project manager": n_manager, "Start date": n_start.strftime("%Y-%m-%d"), "Target completion": n_target.strftime("%Y-%m-%d"), "Stage": n_stage, "Status": n_status, "Budget": str(n_budget), "Fee": str(n_fee), "Weekly hours allocated": str(n_weekly_hours), "Phase schedule": build_phase_schedule(n_phase_inputs), "Milestones": serialize_milestones_struct(n_ms_items), "Team members": normalize_team_members(n_members), "Compliance checklist": normalize_checklist(n_compliance), "Notes": n_notes}, st.session_state.projects)
                         save_projects(st.session_state.projects); st.session_state.message = f"Saved '{n_name}'."; st.session_state.show_add_project = False; st.session_state.new_reset = True; st.rerun()
+
+# ── PROJECTS (workspace) ──────────────────────────────────────────────────────
+
+elif page == "Projects":
+    pv = st.session_state.get("active_project_view", "")
+    proj_names = st.session_state.projects["Project name"].dropna().unique().tolist()
+    SC = {"On track": "#2ecc71", "At risk": "#f39c12", "Delayed": "#e74c3c", "Complete": "#95a5a6"}
+    if pv and pv in proj_names:
+        prow = st.session_state.projects[st.session_state.projects["Project name"] == pv].iloc[0].to_dict()
+        pid = prow.get("Project ID", ""); sc = SC.get(prow.get("Status"), "#888")
+        h1, h2 = st.columns([4, 1])
+        h1.markdown(f"## {pv}")
+        h1.markdown(f"<span style='color:#6b6b6b'>{prow.get('Client') or 'No client'} · {prow.get('Location') or ''}</span> &nbsp;<span style='background:{sc};color:white;padding:2px 10px;border-radius:12px;font-size:12px'>{prow.get('Status')}</span>", unsafe_allow_html=True)
+        if h2.button("← All projects", use_container_width=True):
+            st.session_state.active_project_view = ""; st.rerun()
+
+        fee = parse_budget(prow.get("Fee", "0"))
+        consumed = project_fee_consumed(pid, st.session_state.timesheets, role_rates)
+        hours = project_hours_logged(pid, st.session_state.timesheets)
+        pct = round((consumed / fee) * 100, 1) if fee > 0 else 0
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Stage", prow.get("Stage") or "—"); m2.metric("Hours logged", hours)
+        m3.metric("Fee", f"${fee:,.0f}"); m4.metric("Fee used", f"${consumed:,.0f}"); m5.metric("% used", f"{pct}%")
+        st.progress(stage_progress(prow.get("Stage")), text="Stage progress")
+        d1, d2, d3 = st.columns(3)
+        d1.markdown(f"**Start:** {prow.get('Start date') or '—'}")
+        d2.markdown(f"**Target:** {prow.get('Target completion') or '—'}")
+        d3.markdown(f"**Project manager:** {prow.get('Project manager') or '—'}")
+        a1, a2 = st.columns(2)
+        if a1.button("📋 Tasks", use_container_width=True, key="pv_tasks"): show_task_popup(pv)
+        if a2.button("⏱ Log / view hours", use_container_width=True, key="pv_hours"): show_log_hours_popup(pv, pid)
+
+        st.markdown("---")
+        cl, cr = st.columns(2)
+        with cl:
+            st.markdown("### Team")
+            tm = parse_team_members(prow.get("Team members", ""))
+            st.markdown("\n".join(f"- {m}" for m in tm) if tm else "_No team assigned._")
+            st.markdown("### Milestones")
+            ms = parse_milestones_struct(prow.get("Milestones", ""))
+            if ms:
+                done = sum(1 for x in ms if x["done"])
+                st.progress(int(done / len(ms) * 100), text=f"{done}/{len(ms)} complete")
+                for x in ms: st.markdown(f"- {'✅' if x['done'] else '⬜'} {x['text']}")
+            else: st.caption("No milestones.")
+            st.markdown("### Compliance")
+            dc = compliance_to_list(prow.get("Compliance checklist", ""))
+            for t in COMPLIANCE_TASKS: st.markdown(f"- {'✅' if t in dc else '⬜'} {t}")
+        with cr:
+            st.markdown("### Tasks")
+            pt = st.session_state.tasks[st.session_state.tasks["Project name"] == pv]
+            if pt.empty: st.caption("No tasks yet.")
+            else:
+                for s in TASK_STATUSES:
+                    sub = pt[pt["Status"] == s]
+                    if len(sub): st.markdown(f"**{s}** ({len(sub)})")
+                    for _, t in sub.iterrows(): st.markdown(f"- {t['Task name']} — {t['Assigned to'] or 'Unassigned'}")
+            st.markdown("### Hours by team member")
+            pts = st.session_state.timesheets[st.session_state.timesheets["Project ID"] == pid]
+            if pts.empty: st.caption("No hours logged.")
+            else:
+                bym = pts.groupby("Team member")["Hours"].apply(lambda g: round(g.apply(parse_budget).sum(), 1)).sort_values(ascending=False)
+                for mm, hh in bym.items(): st.markdown(f"- {mm}: **{hh}h**")
+            comp_id = prow.get("Company ID", "")
+            if comp_id:
+                ten = st.session_state.tenancies[st.session_state.tenancies["Company ID"].astype(str) == str(comp_id)]
+                if not ten.empty:
+                    st.markdown("### Premises")
+                    for _, tr in ten.iterrows():
+                        br = st.session_state.buildings[st.session_state.buildings["Building ID"] == tr["Building ID"]]
+                        bn = br.iloc[0]["Name"] if not br.empty else "Building"
+                        sqm = parse_budget(tr.get("Sqm", "0"))
+                        st.markdown(f"- {bn} — {tr.get('Floor') or 'Floor n/a'}{f' · {sqm:.0f} m²' if sqm else ''}")
+
+        st.markdown("---"); st.markdown("### Timeline")
+        build_gantt_chart(st.session_state.projects[st.session_state.projects["Project name"] == pv])
+        if prow.get("Notes"): st.markdown("### Notes"); st.info(prow["Notes"])
+        st.markdown("---")
+        if st.button("✏️ Edit this project in Dashboard", key="pv_edit"):
+            st.session_state.selected_project = pv; st.session_state.current_page = "Dashboard"; st.rerun()
+    else:
+        st.subheader("Projects")
+        search_p = st.text_input("Search projects", key="projects_search")
+        pdf = st.session_state.projects.copy()
+        if search_p:
+            s = search_p.lower()
+            pdf = pdf[pdf["Project name"].str.lower().str.contains(s, na=False) | pdf["Client"].str.lower().str.contains(s, na=False)]
+        if pdf.empty:
+            st.info("No projects yet. Add one from the Dashboard.")
+        else:
+            cols = st.columns(3)
+            for i, (_, p) in enumerate(pdf.iterrows()):
+                pid = p.get("Project ID", ""); name = p["Project name"]; stc = SC.get(p.get("Status"), "#888")
+                fee = parse_budget(p.get("Fee", "0")); consumed = project_fee_consumed(pid, st.session_state.timesheets, role_rates)
+                hours = project_hours_logged(pid, st.session_state.timesheets)
+                pct = round((consumed / fee) * 100, 1) if fee > 0 else 0
+                fc = "#2ecc71" if pct < 75 else ("#f39c12" if pct <= 90 else "#e74c3c")
+                bar = (f"<div style='background:#e0e0e0;border-radius:6px;height:7px;overflow:hidden;margin-top:8px'><div style='width:{min(pct,100)}%;height:100%;background:{fc}'></div></div>"
+                       f"<div style='font-size:10px;color:#888;margin-top:2px'>{pct}% of fee used</div>") if fee > 0 else ""
+                with cols[i % 3]:
+                    st.markdown(
+                        f"<div style='border:1px solid #e3e1dd;border-radius:8px;padding:16px;margin-bottom:6px;background:#fff;border-top:4px solid {stc};box-shadow:0 1px 3px rgba(0,0,0,0.05)'>"
+                        f"<div style='font-weight:700;font-size:16px;color:#1a1a1a'>{name}</div>"
+                        f"<div style='font-size:12px;color:#6b6b6b;margin:2px 0 6px'>{p.get('Client') or 'No client'}</div>"
+                        f"<div style='font-size:11px'><span style='background:{stc};color:white;padding:1px 8px;border-radius:10px'>{p.get('Status')}</span> &nbsp;<span style='color:#888'>{p.get('Stage') or ''}</span></div>"
+                        f"<div style='font-size:11px;color:#888;margin-top:6px'>⏱ {hours} hrs logged</div>{bar}</div>", unsafe_allow_html=True)
+                    if st.button("Open project", key=f"open_proj_{pid or name}", use_container_width=True):
+                        st.session_state.active_project_view = name; st.rerun()
 
 # ── TASK TRACKER ──────────────────────────────────────────────────────────────
 
@@ -1287,7 +1391,7 @@ elif page == "Timesheets":
                         allocated.append((prow.iloc[0]["Project ID"], pname, prow.iloc[0].get("Stage", ""))); seen_pn.add(pname)
 
             if not allocated:
-                st.info(f"ℹ️ No projects are allocated to **{wt_member}** yet. Add them to a project's team or set them as project manager (Project Tracker), or book projected hours (Resourcing → Plan Hours). You can still use **＋ Add a Task** below to log against any project.")
+                st.info(f"ℹ️ No projects are allocated to **{wt_member}** yet. Add them to a project's team or set them as project manager (Dashboard), or book projected hours (Resourcing → Plan Hours). You can still use **＋ Add a Task** below to log against any project.")
 
             wt_rows_key = f"wt_rows3_{wt_member}_{week_start.strftime('%Y%m%d')}"
 
@@ -1604,7 +1708,7 @@ elif page == "Clients":
                 st.markdown(f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:6px'><div style='width:14px;height:14px;border-radius:50%;background:{colour}'></div><span style='font-size:13px'><strong>{s}</strong>: {cnt}</span></div>", unsafe_allow_html=True)
         st.markdown("---")
 
-    tab_companies, tab_contacts = st.tabs(["🏢 Companies", "👤 Contacts"])
+    tab_companies, tab_contacts, tab_buildings = st.tabs(["🏢 Companies", "👤 Contacts", "🏬 Buildings"])
 
     with tab_companies:
         search_co = st.text_input("Search companies", key="search_companies")
@@ -1690,7 +1794,7 @@ elif page == "Clients":
                             if cf.get("label"): st.markdown(f"- **{cf['label']}:** {cf.get('value','')}")
 
                 st.markdown("---")
-                lt1, lt2, lt3 = st.tabs(["📁 Projects", "📋 Estimates", "👤 Contacts"])
+                lt1, lt2, lt3, lt4 = st.tabs(["📁 Projects", "📋 Estimates", "👤 Contacts", "🏬 Premises"])
                 with lt1:
                     linked_proj = st.session_state.projects[st.session_state.projects["Company ID"] == act_co]
                     if linked_proj.empty: st.caption("No linked projects.")
@@ -1762,6 +1866,15 @@ elif page == "Clients":
                                 new_ct2 = {"Contact ID": create_id(), "Company ID": act_co, "Company name": co_name, "First name": a_first, "Last name": a_last, "Title": a_title, "Email": a_email, "Phone": a_phone, "Mobile": a_mobile, "Address": "", "Notes": a_notes, "Tags": "", "Custom fields": "[]", "Is primary": str(a_primary), "Created": pd.Timestamp.now().strftime("%Y-%m-%d"), "Last updated": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")}
                                 st.session_state.contacts = pd.concat([st.session_state.contacts, pd.DataFrame([new_ct2])], ignore_index=True)
                                 save_contacts(st.session_state.contacts); st.rerun()
+                with lt4:
+                    co_ten = st.session_state.tenancies[st.session_state.tenancies["Company ID"].astype(str) == str(act_co)]
+                    if co_ten.empty: st.caption("Not assigned to any building. Assign from the Buildings tab.")
+                    else:
+                        for _, tr in co_ten.iterrows():
+                            br = st.session_state.buildings[st.session_state.buildings["Building ID"] == tr["Building ID"]]
+                            bn = br.iloc[0]["Name"] if not br.empty else "Building"
+                            sqm = parse_budget(tr.get("Sqm", "0"))
+                            st.markdown(f"- **{bn}** — {tr.get('Floor') or 'Floor n/a'}{f' · {sqm:.0f} m²' if sqm else ''}")
         else:
             if cos.empty: st.info("No companies yet. Use '＋ New company' in the sidebar.")
             else:
@@ -1890,6 +2003,138 @@ elif page == "Clients":
                                     + ("⭐ Primary" if ct.get("Is primary") == "True" else "") + "</div>", unsafe_allow_html=True)
                         if st.button("Open", key=f"open_ct_{ctid}", use_container_width=True):
                             st.session_state.active_contact_id = ctid; st.rerun()
+
+    with tab_buildings:
+        st.caption("Group clients by building. A client can occupy multiple floors — each tenancy records the floor and area (m²).")
+        company_name_by_id = dict(zip(st.session_state.companies["Company ID"], st.session_state.companies["Name"]))
+        search_b = st.text_input("Search buildings", key="search_buildings")
+        bdf = st.session_state.buildings.copy()
+        if search_b:
+            s = search_b.lower()
+            bdf = bdf[bdf["Name"].str.lower().str.contains(s, na=False) | bdf["Address"].str.lower().str.contains(s, na=False)]
+        act_b = st.session_state.active_building_id
+
+        if act_b == "new":
+            st.markdown("### New building")
+            with st.form("new_building_form"):
+                nb_name = st.text_input("Building name", placeholder="e.g. Tower Junction")
+                nb_address = st.text_area("Address", height=80, placeholder="Street, suburb, city")
+                nb_notes = st.text_area("Notes", height=80)
+                b1, b2 = st.columns(2)
+                if b1.form_submit_button("Save building", use_container_width=True):
+                    if not nb_name and not nb_address:
+                        st.warning("Enter at least a building name or address.")
+                    else:
+                        new_b = {"Building ID": create_id(), "Name": nb_name or nb_address.splitlines()[0], "Address": nb_address, "Notes": nb_notes, "Created": pd.Timestamp.now().strftime("%Y-%m-%d"), "Last updated": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")}
+                        st.session_state.buildings = pd.concat([st.session_state.buildings, pd.DataFrame([new_b])], ignore_index=True)
+                        save_buildings(st.session_state.buildings); st.session_state.active_building_id = new_b["Building ID"]; st.rerun()
+                if b2.form_submit_button("Cancel", use_container_width=True):
+                    st.session_state.active_building_id = None; st.rerun()
+
+        elif act_b is not None:
+            b_row = st.session_state.buildings[st.session_state.buildings["Building ID"] == act_b]
+            if b_row.empty:
+                st.warning("Building not found.")
+                if st.button("← Back"): st.session_state.active_building_id = None; st.rerun()
+            else:
+                b = b_row.iloc[0].to_dict()
+                bt = st.session_state.tenancies[st.session_state.tenancies["Building ID"] == act_b].copy()
+                total_sqm = sum(parse_budget(x) for x in bt["Sqm"].tolist())
+                hb1, hb2, hb3 = st.columns([3, 1, 1])
+                hb1.markdown(f"## 🏢 {b['Name']}")
+                hb1.caption(b["Address"] or "No address set")
+                edit_b = st.session_state.get(f"edit_b_{act_b}", False)
+                if hb2.button("✏️ Edit" if not edit_b else "▲ Close edit", key=f"edit_b_btn_{act_b}", use_container_width=True):
+                    st.session_state[f"edit_b_{act_b}"] = not edit_b; st.rerun()
+                if hb3.button("✕ Close", key=f"close_b_btn_{act_b}", use_container_width=True):
+                    st.session_state.active_building_id = None; st.rerun()
+
+                if edit_b:
+                    with st.form("edit_building_form"):
+                        eb_name = st.text_input("Building name", value=b["Name"])
+                        eb_address = st.text_area("Address", value=b["Address"], height=80)
+                        eb_notes = st.text_area("Notes", value=b["Notes"], height=80)
+                        s1, s2 = st.columns(2)
+                        if s1.form_submit_button("Save", use_container_width=True):
+                            bidx = st.session_state.buildings[st.session_state.buildings["Building ID"] == act_b].index[0]
+                            for k, v in [("Name", eb_name), ("Address", eb_address), ("Notes", eb_notes), ("Last updated", pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"))]:
+                                st.session_state.buildings.at[bidx, k] = v
+                            save_buildings(st.session_state.buildings); st.session_state[f"edit_b_{act_b}"] = False; st.rerun()
+                        if s2.form_submit_button("Delete building", use_container_width=True):
+                            st.session_state.tenancies = st.session_state.tenancies[st.session_state.tenancies["Building ID"] != act_b]
+                            save_tenancies(st.session_state.tenancies)
+                            st.session_state.buildings = st.session_state.buildings[st.session_state.buildings["Building ID"] != act_b]
+                            save_buildings(st.session_state.buildings); st.session_state.active_building_id = None; st.rerun()
+                elif b["Notes"]:
+                    st.info(b["Notes"])
+
+                mtop1, mtop2 = st.columns(2)
+                mtop1.metric("Clients", bt["Company ID"].nunique())
+                mtop2.metric("Total area", f"{total_sqm:,.0f} m²")
+
+                st.markdown("---"); st.markdown("**Tenancies by floor**")
+                if bt.empty:
+                    st.caption("No tenancies yet — add one below.")
+                else:
+                    floors = {}
+                    for _, tr in bt.iterrows():
+                        fl = (str(tr.get("Floor") or "").strip()) or "Unspecified floor"
+                        floors.setdefault(fl, []).append(tr)
+                    def _floor_key(f):
+                        m = re.search(r"\d+", f)
+                        return (0, int(m.group())) if m else (1, f.lower())
+                    for fl in sorted(floors, key=_floor_key):
+                        fsqm = sum(parse_budget(t.get("Sqm", "0")) for t in floors[fl])
+                        st.markdown(f"<div style='font-weight:700;color:#1a1a1a;border-bottom:1px solid #d8d6d2;padding:6px 0 4px;margin-top:8px'>{fl} &nbsp;<span style='font-weight:400;color:#888;font-size:12px'>· {fsqm:,.0f} m²</span></div>", unsafe_allow_html=True)
+                        for tr in floors[fl]:
+                            tnid = tr["Tenancy ID"]; cname = company_name_by_id.get(tr["Company ID"], "(unknown)")
+                            sqm = parse_budget(tr.get("Sqm", "0"))
+                            rc = st.columns([4, 1])
+                            rc[0].markdown(f"<div style='padding-top:4px'><span style='font-weight:600'>{cname}</span> &nbsp;<span style='color:#888;font-size:12px'>{f'{sqm:.0f} m²' if sqm else ''}{' · ' + tr['Notes'] if tr.get('Notes') else ''}</span></div>", unsafe_allow_html=True)
+                            if rc[1].button("Remove", key=f"rm_ten_{tnid}"):
+                                st.session_state.tenancies = st.session_state.tenancies[st.session_state.tenancies["Tenancy ID"] != tnid]
+                                save_tenancies(st.session_state.tenancies); st.rerun()
+
+                st.markdown("---"); st.markdown("**Add a tenancy**")
+                with st.form(f"add_tenancy_{act_b}"):
+                    tc1, tc2, tc3 = st.columns([2, 1, 1])
+                    t_company = tc1.selectbox("Client (company)", [""] + company_names, key=f"ten_co_{act_b}")
+                    t_floor = tc2.text_input("Floor / Level", placeholder="e.g. Level 3", key=f"ten_fl_{act_b}")
+                    t_sqm = tc3.number_input("Area (m²)", min_value=0.0, step=5.0, key=f"ten_sqm_{act_b}")
+                    t_notes = st.text_input("Notes (optional)", key=f"ten_notes_{act_b}")
+                    if st.form_submit_button("Add tenancy", use_container_width=True):
+                        if not t_company:
+                            st.warning("Pick a company.")
+                        else:
+                            cid = st.session_state.companies[st.session_state.companies["Name"] == t_company].iloc[0]["Company ID"]
+                            new_t = {"Tenancy ID": create_id(), "Building ID": act_b, "Company ID": cid, "Floor": t_floor, "Sqm": str(t_sqm), "Notes": t_notes}
+                            st.session_state.tenancies = pd.concat([st.session_state.tenancies, pd.DataFrame([new_t])], ignore_index=True)
+                            save_tenancies(st.session_state.tenancies); st.rerun()
+
+        else:
+            if st.button("＋ New building", key="new_building_btn_main", use_container_width=True):
+                st.session_state.active_building_id = "new"; st.rerun()
+            if bdf.empty:
+                st.info("No buildings yet. Create one, then add tenancies by floor.")
+            else:
+                cols = st.columns(3)
+                for i, (_, b) in enumerate(bdf.iterrows()):
+                    bid = b["Building ID"]
+                    bt = st.session_state.tenancies[st.session_state.tenancies["Building ID"] == bid]
+                    n_clients = bt["Company ID"].nunique()
+                    total_sqm = sum(parse_budget(x) for x in bt["Sqm"].tolist())
+                    floor_list = sorted({str(x).strip() for x in bt["Floor"].tolist() if str(x).strip()}, key=lambda f: (0, int(re.search(r"\d+", f).group())) if re.search(r"\d+", f) else (1, f.lower()))
+                    floor_txt = ", ".join(floor_list) if floor_list else "—"
+                    with cols[i % 3]:
+                        st.markdown(
+                            f"<div style='border:1px solid #e3e1dd;border-radius:6px;padding:14px 16px;margin-bottom:6px;background:#ffffff;border-left:4px solid #F2C94C;box-shadow:0 1px 3px rgba(0,0,0,0.04)'>"
+                            f"<div style='font-weight:700;font-size:15px;margin-bottom:2px;color:#1a1a1a'>🏢 {b['Name']}</div>"
+                            f"<div style='font-size:11px;color:#6b6b6b;margin-bottom:6px'>{b['Address'] or 'No address'}</div>"
+                            f"<div style='font-size:11px;color:#888'>👥 {n_clients} client(s) &nbsp;·&nbsp; 📐 {total_sqm:,.0f} m²</div>"
+                            f"<div style='font-size:11px;color:#888'>🏬 Floors: {floor_txt}</div>"
+                            "</div>", unsafe_allow_html=True)
+                        if st.button("Open", key=f"open_b_{bid}", use_container_width=True):
+                            st.session_state.active_building_id = bid; st.rerun()
 
 # ── RESOURCING ────────────────────────────────────────────────────────────────
 
