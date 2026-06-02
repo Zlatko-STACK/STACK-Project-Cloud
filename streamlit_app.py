@@ -2565,8 +2565,8 @@ def _milo_send(question):
 
 st.markdown("""
 <style>
-/* Float Milo's toggle button bottom-right, fixed on scroll */
-.st-key-milo_toggle { position: fixed; right: 28px; bottom: 28px; z-index: 1000; width: auto !important; }
+/* Floating Milo toggle button (bottom-right, fixed on scroll) */
+.st-key-milo_toggle { position: fixed; right: 28px; bottom: 28px; z-index: 1001; width: auto !important; }
 .st-key-milo_toggle button {
     background: linear-gradient(135deg, #1a1a1a 0%, #2c2c2c 100%) !important;
     color: #F2C94C !important; border: none !important; border-radius: 30px !important;
@@ -2577,47 +2577,53 @@ st.markdown("""
     transform: translateY(-3px) scale(1.03) !important; color: #F2C94C !important;
     background: linear-gradient(135deg, #2c2c2c 0%, #3a3a3a 100%) !important;
     box-shadow: 0 12px 32px rgba(0,0,0,0.40), 0 0 0 3px rgba(242,201,76,0.25) !important; }
+/* Floating Milo panel, docked above the button */
+.st-key-milo_panel { position: fixed; right: 28px; bottom: 92px; z-index: 1000;
+    width: 390px; max-width: 92vw; max-height: 76vh; overflow: auto;
+    background: #ffffff; border: 1px solid #e3e1dd; border-radius: 16px;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.28); padding: 16px 18px 6px; }
 </style>
 """, unsafe_allow_html=True)
 if "milo_open" not in st.session_state: st.session_state.milo_open = False
 if st.button("✕  Close Milo" if st.session_state.milo_open else "💬  Ask Milo", key="milo_toggle"):
     st.session_state.milo_open = not st.session_state.milo_open; st.rerun()
 if st.session_state.milo_open:
-    st.caption("Read-only — Milo answers from a live summary of your data and can't change anything.")
-    _milo_ready = True
-    try:
-        import anthropic  # noqa: F401
-    except ImportError:
-        st.error("`anthropic` isn't installed — add it to requirements.txt and reboot the app."); _milo_ready = False
-    if _milo_ready:
-        try: _has_key = bool(st.secrets["ANTHROPIC_API_KEY"])
-        except Exception: _has_key = False
-        if not _has_key:
-            st.info("Add `ANTHROPIC_API_KEY` in Manage app → Settings → Secrets, then reboot."); _milo_ready = False
-
-    if _milo_ready:
-        if "ask_history" not in st.session_state: st.session_state.ask_history = []
-        box = st.container(height=300)
-        with box:
+    with st.container(key="milo_panel"):
+        st.markdown("<div style='font-weight:700;color:#1a1a1a;font-size:16px'>💬 Milo</div>", unsafe_allow_html=True)
+        st.caption("Read-only — answers from a live summary of your data.")
+        _milo_ready = True
+        try:
+            import anthropic  # noqa: F401
+        except ImportError:
+            st.error("`anthropic` isn't installed — add it to requirements.txt and reboot."); _milo_ready = False
+        if _milo_ready:
+            try: _has_key = bool(st.secrets["ANTHROPIC_API_KEY"])
+            except Exception: _has_key = False
+            if not _has_key:
+                st.info("Add `ANTHROPIC_API_KEY` in Manage app → Settings → Secrets, then reboot."); _milo_ready = False
+        if _milo_ready:
+            if "ask_history" not in st.session_state: st.session_state.ask_history = []
+            box = st.container(height=260)
+            with box:
+                if not st.session_state.ask_history:
+                    st.markdown("<div style='color:#6b6b6b;font-size:13px'>Hi, I'm Milo 👋 Ask about your projects, hours, resourcing or clients — or tap a question below.</div>", unsafe_allow_html=True)
+                for msg in st.session_state.ask_history:
+                    with st.chat_message(msg["role"], avatar=("🟡" if msg["role"] == "assistant" else None)):
+                        st.markdown(msg["content"])
             if not st.session_state.ask_history:
-                st.markdown("<div style='color:#6b6b6b;font-size:13px'>Hi, I'm Milo 👋 Ask about your projects, hours, resourcing or clients — or tap a question below.</div>", unsafe_allow_html=True)
-            for msg in st.session_state.ask_history:
-                with st.chat_message(msg["role"], avatar=("🟡" if msg["role"] == "assistant" else None)):
-                    st.markdown(msg["content"])
-        if not st.session_state.ask_history:
-            scols = st.columns(2)
-            for i, s in enumerate(MILO_STARTERS):
-                if scols[i % 2].button(s, key=f"milo_starter_{i}", use_container_width=True):
-                    _milo_send(s); st.rerun()
-        else:
-            if st.button("🧹 Clear chat", key="milo_clear"):
-                st.session_state.ask_history = []; st.rerun()
-        with st.form("milo_form", clear_on_submit=True):
-            fc1, fc2 = st.columns([5, 1])
-            _q = fc1.text_input("Ask Milo…", key="milo_q", label_visibility="collapsed", placeholder="Ask Milo a question…")
-            _sent = fc2.form_submit_button("Send", use_container_width=True)
-            if _sent and _q.strip():
-                _milo_send(_q.strip()); st.rerun()
+                scols = st.columns(2)
+                for i, s in enumerate(MILO_STARTERS):
+                    if scols[i % 2].button(s, key=f"milo_starter_{i}", use_container_width=True):
+                        _milo_send(s); st.rerun()
+            else:
+                if st.button("🧹 Clear chat", key="milo_clear"):
+                    st.session_state.ask_history = []; st.rerun()
+            with st.form("milo_form", clear_on_submit=True):
+                fc1, fc2 = st.columns([5, 1])
+                _q = fc1.text_input("Ask Milo…", key="milo_q", label_visibility="collapsed", placeholder="Ask Milo a question…")
+                _sent = fc2.form_submit_button("Send", use_container_width=True)
+                if _sent and _q.strip():
+                    _milo_send(_q.strip()); st.rerun()
 
 # ── footer ────────────────────────────────────────────────────────────────────
 
