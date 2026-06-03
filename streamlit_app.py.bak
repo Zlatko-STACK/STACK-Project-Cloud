@@ -125,23 +125,12 @@ def parse_milestones_struct(value):
         done = l.endswith("✓") or l.startswith("[x]") or l.startswith("[X]") or l.lower().endswith("complete")
         text = l[3:].strip() if (l.startswith("[x]") or l.startswith("[X]")) else l
         if text.endswith("✓"): text = text[:-1].strip()
-        ms_date = None
-        m = re.search(r"@(\d{4}-\d{2}-\d{2})\s*$", text)
-        if m:
-            ms_date = m.group(1)
-            text = text[:m.start()].strip()
-        out.append({"id": create_id(), "text": text, "done": done, "date": ms_date})
+        out.append({"id": create_id(), "text": text, "done": done})
     return out
 
 def serialize_milestones_struct(items):
-    def _line(it):
-        t = (it.get("text") or "").strip()
-        d = (it.get("date") or "")
-        if hasattr(d, "strftime"): d = d.strftime("%Y-%m-%d")
-        d = str(d).strip()
-        if d: t = f"{t} @{d}"
-        return f"{t} ✓" if it.get("done") else t
-    return "\n".join(_line(it) for it in items if (it.get("text") or "").strip())
+    return "\n".join(f"{it['text'].strip()} ✓" if it.get("done") else it["text"].strip()
+                     for it in items if (it.get("text") or "").strip())
 
 def parse_phase_schedule(value):
     phases = []
@@ -724,34 +713,6 @@ def build_gantt_chart(df):
         y_labels.append(phase_label)
         display_rows.append({**row.to_dict(), "y_label": phase_label})
     disp_df = pd.DataFrame(display_rows)
-    # --- milestone markers (subtle diamonds on each project header row) ---
-    ms_marker_rows = []
-    for _, mrow in df.iterrows():
-        m_items = parse_milestones_struct(mrow.get("Milestones", ""))
-        m_ylabel = f"▸ {mrow['Project name']}"
-        for m in m_items:
-            md = parse_date(m.get("date"))
-            if md is None:
-                continue
-            ms_marker_rows.append({
-                "y_label": m_ylabel,
-                "Date": pd.to_datetime(md),
-                "Milestone": m.get("text") or "(untitled)",
-                "Status": "Done" if m.get("done") else "Pending",
-                "DateStr": md.strftime("%d %b %Y"),
-            })
-    ms_df = pd.DataFrame(ms_marker_rows)
-    ms_layer = None
-    if not ms_df.empty:
-        ms_layer = alt.Chart(ms_df).mark_point(
-            shape="diamond", size=85, filled=True, opacity=0.9,
-            stroke="#ffffff", strokeWidth=1,
-        ).encode(
-            x=alt.X("Date:T"),
-            y=alt.Y("y_label:N", sort=y_labels),
-            color=alt.Color("Status:N", scale=alt.Scale(domain=["Pending", "Done"], range=["#6c5ce7", "#2ecc71"]), legend=None),
-            tooltip=[alt.Tooltip("Milestone:N", title="Milestone"), alt.Tooltip("DateStr:N", title="Date"), alt.Tooltip("Status:N", title="Status")],
-        )
     bars = alt.Chart(disp_df).mark_bar(height=16, cornerRadius=4).encode(
         x=alt.X("Start:T", title="", axis=alt.Axis(format="%b %Y", tickCount="month", grid=True, gridColor="#f0f0f0", labelFontSize=11)),
         x2=alt.X2("End:T"),
@@ -768,13 +729,9 @@ def build_gantt_chart(df):
         hdr_df = pd.DataFrame({"y_label": header_rows})
         header_bands = alt.Chart(hdr_df).mark_rect(color="#ece9e4", height=28).encode(y=alt.Y("y_label:N", sort=y_labels))
         header_text = alt.Chart(hdr_df).mark_text(align="left", dx=-220, fontSize=12, fontWeight="bold", color="#2c3e50").encode(y=alt.Y("y_label:N", sort=y_labels), text=alt.Text("y_label:N"))
-        _layers = [header_bands, bars, bar_labels, today_line, today_label, header_text]
-        if ms_layer is not None: _layers.append(ms_layer)
-        chart = alt.layer(*_layers)
+        chart = alt.layer(header_bands, bars, bar_labels, today_line, today_label, header_text)
     else:
-        _layers = [bars, bar_labels, today_line, today_label]
-        if ms_layer is not None: _layers.append(ms_layer)
-        chart = alt.layer(*_layers)
+        chart = alt.layer(bars, bar_labels, today_line, today_label)
     n_rows = len(y_labels); chart_height = max(500, n_rows * 32 + 120)
     chart = chart.properties(width="container", height=chart_height, background="transparent").configure_view(strokeWidth=0, fill="transparent").configure_axis(labelColor="#2c2c2c", titleColor="#2c2c2c", domainColor="#c9c6c1", gridColor="#e3e1dd", tickColor="#c9c6c1").configure_legend(labelColor="#2c2c2c", titleColor="#1a1a1a").configure_title(color="#1a1a1a")
     st.altair_chart(chart, use_container_width=True)
@@ -1179,12 +1136,9 @@ if page == "Dashboard":
             ms_items = st.session_state[ms_key]
             _rm = None
             for it in ms_items:
-                mc0, mc1, mc3, mc2 = st.columns([0.6, 3.4, 1.4, 0.6])
+                mc0, mc1, mc2 = st.columns([0.6, 4, 0.6])
                 it["done"] = mc0.checkbox("done", value=it["done"], key=f"{ms_key}_done_{it['id']}", label_visibility="collapsed")
                 it["text"] = mc1.text_input("ms", value=it["text"], key=f"{ms_key}_text_{it['id']}", label_visibility="collapsed", placeholder="Milestone…")
-                _dv = parse_date(it.get("date"))
-                _d = mc3.date_input("date", value=_dv, key=f"{ms_key}_date_{it['id']}", label_visibility="collapsed", format="YYYY-MM-DD")
-                it["date"] = _d.strftime("%Y-%m-%d") if _d else None
                 if mc2.button("✕", key=f"{ms_key}_rm_{it['id']}"): _rm = it["id"]
             if _rm is not None:
                 st.session_state[ms_key] = [x for x in ms_items if x["id"] != _rm]; st.rerun()
@@ -1192,7 +1146,7 @@ if page == "Dashboard":
             _dn = sum(1 for x in ms_items if x["done"] and x["text"].strip())
             if _tot: st.progress(int(_dn / _tot * 100), text=f"{_dn}/{_tot} complete")
             if st.button("＋ Add milestone", key=f"{ms_key}_add"):
-                ms_items.append({"id": create_id(), "text": "", "done": False, "date": None}); st.rerun()
+                ms_items.append({"id": create_id(), "text": "", "done": False}); st.rerun()
 
             with st.form("edit_project_form"):
                 st.text_input("Project ID", value=cur.get("Project ID", ""), disabled=True)
@@ -1264,17 +1218,14 @@ if page == "Dashboard":
             n_ms_items = st.session_state["new_ms"]
             _nrm = None
             for it in n_ms_items:
-                mc0, mc1, mc3, mc2 = st.columns([0.6, 3.4, 1.4, 0.6])
+                mc0, mc1, mc2 = st.columns([0.6, 4, 0.6])
                 it["done"] = mc0.checkbox("done", value=it["done"], key=f"new_ms_done_{it['id']}", label_visibility="collapsed")
                 it["text"] = mc1.text_input("ms", value=it["text"], key=f"new_ms_text_{it['id']}", label_visibility="collapsed", placeholder="Milestone…")
-                _dv = parse_date(it.get("date"))
-                _d = mc3.date_input("date", value=_dv, key=f"new_ms_date_{it['id']}", label_visibility="collapsed", format="YYYY-MM-DD")
-                it["date"] = _d.strftime("%Y-%m-%d") if _d else None
                 if mc2.button("✕", key=f"new_ms_rm_{it['id']}"): _nrm = it["id"]
             if _nrm is not None:
                 st.session_state["new_ms"] = [x for x in n_ms_items if x["id"] != _nrm]; st.rerun()
             if st.button("＋ Add milestone", key="new_ms_add"):
-                n_ms_items.append({"id": create_id(), "text": "", "done": False, "date": None}); st.rerun()
+                n_ms_items.append({"id": create_id(), "text": "", "done": False}); st.rerun()
 
             with st.form("new_project_form"):
                 n_id = st.text_input("Project ID (leave blank to auto-generate)"); n_name = st.text_input("Project name")
