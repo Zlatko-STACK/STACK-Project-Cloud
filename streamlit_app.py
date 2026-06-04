@@ -531,7 +531,7 @@ def generate_pdf_html(est_row, lines_df, disb_df, totals, role_rates):
         if pl.empty: continue
         pt = 0.0; rc = ""
         for role in roles:
-            rl = pl[pl["Role"] == role]; hrs = rl["Hours"].apply(parse_budget).sum(); cost = hrs * role_rates.get(role, 0.0); pt += cost
+            rl = pl[pl["Role"] == role]; hrs = float(rl["Hours"].apply(parse_budget).sum() or 0.0); cost = hrs * parse_budget(role_rates.get(role, 0.0)); pt += cost
             rc += f"<td style='text-align:center;padding:4px 8px'>{hrs if hrs>0 else ''}</td><td style='text-align:right;padding:4px 8px'>{'${:,.0f}'.format(cost) if cost>0 else ''}</td>"
         phase_rows += f"<tr><td style='padding:4px 8px;font-weight:600'>{phase}</td>{rc}<td style='text-align:right;padding:4px 8px;font-weight:700'>${pt:,.2f}</td></tr>"
     rh = "".join(f"<th colspan='2' style='padding:6px 8px;background:#2c3e50;color:white'>{r}</th>" for r in roles)
