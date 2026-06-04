@@ -1064,8 +1064,10 @@ with st.sidebar:
         "style='width:100%;display:block;filter:brightness(0) invert(1)' alt='STACK Interiors'/>"
         "</div></a>", unsafe_allow_html=True)
     page_index = PAGES.index(st.session_state.current_page) if st.session_state.current_page in PAGES else 0
-    if st.session_state.get("page_selector") != st.session_state.current_page and st.session_state.current_page in PAGES:
-        st.session_state.page_selector = st.session_state.current_page
+    if st.session_state.get("nav_target") in PAGES:
+        st.session_state.page_selector = st.session_state.nav_target
+        st.session_state.current_page = st.session_state.nav_target
+        st.session_state.nav_target = None
     page = st.selectbox("Page", PAGES, index=page_index, key="page_selector")
     if page != st.session_state.current_page:
         st.session_state.current_page = page; st.rerun()
@@ -1167,7 +1169,7 @@ if page == "Dashboard":
         if display.empty: st.info("No projects match the filters.")
         else: st.dataframe(display[show_cols].fillna(""), use_container_width=True, hide_index=True)
         if st.button("📂 Open Projects workspace →", use_container_width=True, key="goto_projects"):
-            st.session_state.current_page = "Projects"; st.rerun()
+            st.session_state.nav_target = "Projects"; st.rerun()
     with right:
         st.subheader("Update an existing project")
         proj_options = [""] + st.session_state.projects["Project name"].dropna().unique().tolist()
