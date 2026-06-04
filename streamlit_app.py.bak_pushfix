@@ -1115,7 +1115,13 @@ with st.sidebar:
             for pname, hrs in proj_hrs.items():
                 if hrs > 0: st.write(f"- {pname}: **{hrs}h**")
     elif page == "Fee Estimator":
-        pass  # estimate picker moved to the main Fee Estimator page
+        st.header("Estimates")
+        if not st.session_state.estimates.empty:
+            for _, e in st.session_state.estimates.iterrows():
+                t = estimate_totals(e["Estimate ID"], st.session_state.estimate_lines, st.session_state.estimate_disb, e.get("Margin %", "0"), role_rates)
+                if st.button(f"{e['Estimate name']}\n${t['total']:,.0f}", key=f"sidebar_est_{e['Estimate ID']}", use_container_width=True):
+                    st.session_state.active_estimate_id = e["Estimate ID"]; st.rerun()
+        if st.button("＋ New estimate", use_container_width=True): st.session_state.active_estimate_id = "new"; st.rerun()
     elif page == "Clients":
         st.header("Clients")
         st.metric("Companies", len(st.session_state.companies)); st.metric("Contacts", len(st.session_state.contacts))
@@ -1731,25 +1737,6 @@ elif page == "Timesheets":
 
 elif page == "Fee Estimator":
     st.subheader("Fee Estimator")
-    # --- In-page estimate selector (replaces the old sidebar list) ---
-    _ests = st.session_state.estimates
-    _opts = [("\u2795 New estimate", "new")]
-    if not _ests.empty:
-        for _, _e in _ests.iterrows():
-            _t = estimate_totals(_e["Estimate ID"], st.session_state.estimate_lines, st.session_state.estimate_disb, _e.get("Margin %", "0"), role_rates)
-            _label = f"{_e['Estimate name']}  -  ${_t['total']:,.0f}"
-            if str(_e.get('Client','')).strip():
-                _label += f"  ({_e['Client']})"
-            _opts.append((_label, _e["Estimate ID"]))
-    _ids = [o[1] for o in _opts]
-    _cur = st.session_state.active_estimate_id
-    _cur_idx = _ids.index(_cur) if _cur in _ids else (1 if len(_ids) > 1 else 0)
-    _sc1, _sc2 = st.columns([4, 1])
-    _choice = _sc1.selectbox("Estimate", _opts, index=_cur_idx, format_func=lambda o: o[0], label_visibility="collapsed")
-    if _sc2.button("\u2795 New", use_container_width=True):
-        st.session_state.active_estimate_id = "new"; st.rerun()
-    if _choice[1] != _cur:
-        st.session_state.active_estimate_id = _choice[1]; st.rerun()
     act = st.session_state.active_estimate_id
     if act == "new":
         st.markdown("### New estimate")
@@ -1821,29 +1808,11 @@ elif page == "Fee Estimator":
                         st.session_state.estimate_disb = pd.concat([st.session_state.estimate_disb, pd.DataFrame([{"Disb ID": create_id(), "Estimate ID": act, "Description": disb_desc, "Type": disb_type, "Value": str(disb_val)}])], ignore_index=True)
                         save_estimate_disb(st.session_state.estimate_disb); st.rerun()
             st.markdown("---")
-            has_proj = bool(est.get("Project ID"))
-            has_client = bool(est.get("Company ID"))
-            if has_proj or has_client:
-                if st.button("📤 Push total fee to linked project & client", use_container_width=True):
-                    fee_str = str(totals["total"]); pushed = []
-                    if has_proj:
-                        pidx2 = st.session_state.projects[st.session_state.projects["Project ID"] == est["Project ID"]].index
-                        if not pidx2.empty:
-                            st.session_state.projects.at[pidx2[0], "Fee"] = fee_str; save_projects(st.session_state.projects); pushed.append(f"project '{est.get('Project name','')}'")
-                    if has_client:
-                        cidx = st.session_state.companies[st.session_state.companies["Company ID"].astype(str) == str(est["Company ID"])].index
-                        if not cidx.empty:
-                            import re as _re
-                            cur_notes = str(st.session_state.companies.at[cidx[0], "Notes"] or "")
-                            tag = f"[Fee] Estimate '{est.get('Estimate name','')}':"
-                            kept = [l for l in cur_notes.splitlines() if not l.strip().startswith(f"[Fee] Estimate '{est.get('Estimate name','')}':")]
-                            kept.append(f"{tag} ${totals['total']:,.2f} (as of {pd.Timestamp.now().strftime('%Y-%m-%d')})")
-                            st.session_state.companies.at[cidx[0], "Notes"] = "\n".join([l for l in kept if l.strip()])
-                            save_companies(st.session_state.companies); pushed.append(f"client '{est.get('Client','')}'")
-                    if pushed:
-                        st.success(f"Fee of ${totals['total']:,.2f} pushed to " + " and ".join(pushed) + ".")
-                    else:
-                        st.warning("No linked project or client record found to push to.")
+            if est.get("Project ID"):
+                if st.button("📤 Push total fee to linked project", use_container_width=True):
+                    pidx2 = st.session_state.projects[st.session_state.projects["Project ID"] == est["Project ID"]].index
+                    if not pidx2.empty:
+                        st.session_state.projects.at[pidx2[0], "Fee"] = str(totals["total"]); save_projects(st.session_state.projects); st.success(f"Fee of ${totals['total']:,.2f} pushed to '{est['Project name']}'.")
             est_fresh = st.session_state.estimates[st.session_state.estimates["Estimate ID"] == act].iloc[0].to_dict()
             totals_fresh = estimate_totals(act, st.session_state.estimate_lines, st.session_state.estimate_disb, est_fresh.get("Margin %", "0"), role_rates)
             pdf_html = generate_pdf_html(est_fresh, st.session_state.estimate_lines, st.session_state.estimate_disb, totals_fresh, role_rates)
