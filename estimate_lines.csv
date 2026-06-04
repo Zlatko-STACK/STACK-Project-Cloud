@@ -1,1 +1,13 @@
-Line ID,Estimate ID,Phase,Role,Hours,Rate
+Line ID,Estimate ID,Phase,Role,Hours,Rate,Task,Active
+3e339746,32c1a7da,Project Preliminaries,Technician,10.0,85.0,Project initiation and commencement,True
+d2224fad,32c1a7da,Project Preliminaries,Technician,4.0,85.0,Stakeholder meeting,True
+f88d4f9e,32c1a7da,Project Preliminaries,Technician,0.0,85.0,Review existing building information / aerial details,False
+dc07e062,32c1a7da,Project Preliminaries,Technician,0.0,85.0,Brief setup for the project,True
+01e976b3,32c1a7da,Project Preliminaries,Technician,0.0,85.0,Conduct site visit / scoping,True
+94c13b35,32c1a7da,Project Preliminaries,Technician,0.0,85.0,Initial client briefing meeting,True
+2ae649ab,32c1a7da,Project Preliminaries,Technician,0.0,85.0,Prepare existing layout plans,True
+8cf4002f,32c1a7da,Project Preliminaries,Technician,0.0,85.0,Prepare preliminary test fit / sample,True
+5a3425ce,32c1a7da,Project Preliminaries,Technician,0.0,85.0,Personnel handover to iteration,True
+05454e61,32c1a7da,Project Preliminaries,Technician,0.0,85.0,PM functions - programme and comms,True
+c3f29e8b,32c1a7da,Project Preliminaries,Technician,0.0,85.0,Preliminary cost estimate and markups,True
+6618b121,32c1a7da,Project Preliminaries,Technician,0.0,85.0,Project PCG meetings,True

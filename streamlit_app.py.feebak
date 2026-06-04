@@ -6,7 +6,6 @@ import json
 import altair as alt
 import pandas as pd
 import streamlit as st
-import fee_breakdown
 
 PAGE_TITLE = "STACK Project Cloud"
 DATA_FILE = Path(__file__).parent / "projects.csv"
@@ -1787,9 +1786,28 @@ elif page == "Fee Estimator":
             mc1, mc2, mc3, mc4, mc5 = st.columns(5)
             mc1.metric("Hours cost", f"${totals['hours_cost']:,.2f}"); mc2.metric("Disbursements", f"${totals['total_disb']:,.2f}")
             mc3.metric("Subtotal", f"${totals['subtotal']:,.2f}"); mc4.metric(f"Margin ({est.get('Margin %','0')}%)", f"${totals['margin_amt']:,.2f}"); mc5.metric("TOTAL FEE", f"${totals['total']:,.2f}")
-            st.markdown("---")
-            fee_breakdown.render_fee_breakdown(
-                act, role_rates, DEFAULT_ROLES, save_estimate_lines, create_id)
+            st.markdown("---"); st.markdown("### Phase & Role Hours")
+            for phase in STAGES:
+                with st.expander(f"**{phase}**", expanded=True):
+                    phase_lines = st.session_state.estimate_lines[(st.session_state.estimate_lines["Estimate ID"] == act) & (st.session_state.estimate_lines["Phase"] == phase)]
+                    roles = list(DEFAULT_ROLES.keys())
+                    with st.form(key=f"phase_form_{act}_{phase}"):
+                        hour_inputs = {}; fcols = st.columns(len(roles) + 1); fcols[0].markdown("**Hrs / Cost**")
+                        for j, role in enumerate(roles): fcols[j+1].markdown(f"**{role}**")
+                        hr_cols = st.columns(len(roles) + 1); hr_cols[0].markdown("Hours")
+                        for j, role in enumerate(roles):
+                            existing = phase_lines[phase_lines["Role"] == role]
+                            curr_hrs = parse_budget(existing.iloc[0]["Hours"]) if not existing.empty else 0.0
+                            hour_inputs[role] = hr_cols[j+1].number_input(role, min_value=0.0, step=0.5, value=curr_hrs, key=f"hrs_{act}_{phase}_{role}", label_visibility="collapsed")
+                        cost_cols = st.columns(len(roles) + 1); cost_cols[0].markdown("Cost"); phase_cost = 0.0
+                        for j, role in enumerate(roles):
+                            c = hour_inputs[role] * role_rates.get(role, 0); phase_cost += c; cost_cols[j+1].markdown(f"${c:,.0f}")
+                        if st.form_submit_button(f"Save {phase}", use_container_width=True):
+                            st.session_state.estimate_lines = st.session_state.estimate_lines[~((st.session_state.estimate_lines["Estimate ID"] == act) & (st.session_state.estimate_lines["Phase"] == phase))]
+                            new_lines = [{"Line ID": create_id(), "Estimate ID": act, "Phase": phase, "Role": role, "Hours": str(hrs), "Rate": str(role_rates.get(role, 0.0))} for role, hrs in hour_inputs.items() if hrs > 0]
+                            if new_lines: st.session_state.estimate_lines = pd.concat([st.session_state.estimate_lines, pd.DataFrame(new_lines)], ignore_index=True)
+                            save_estimate_lines(st.session_state.estimate_lines); st.rerun()
+                    st.caption(f"Phase subtotal: ${phase_cost:,.2f}")
             st.markdown("---"); st.markdown("### Disbursements")
             disb_df2 = st.session_state.estimate_disb[st.session_state.estimate_disb["Estimate ID"] == act]
             if not disb_df2.empty:
