@@ -806,11 +806,21 @@ def build_traffic_light_cards(df):
             phase_info.append({"stage": stage, "days": days})
             if days is not None and days >= 0 and (min_upcoming is None or days < min_upcoming): min_upcoming = days
         proj_id = row.get("Project ID", "")
+        # next upcoming dated milestone (pending preferred)
+        _ms = parse_milestones_struct(row.get("Milestones", ""))
+        _dated = [(parse_date(m.get("date")), m) for m in _ms if parse_date(m.get("date")) is not None]
+        _pending_future = sorted([(d, m) for d, m in _dated if not m.get("done") and d >= today.date()])
+        _any_future = sorted([(d, m) for d, m in _dated if d >= today.date()])
+        _pick = (_pending_future or _any_future or sorted(_dated))
+        next_ms = None
+        if _pick:
+            _nd, _nm = _pick[0]
+            next_ms = {"text": _nm.get("text") or "Milestone", "date": _nd, "days": (pd.Timestamp(_nd).normalize() - today).days, "done": bool(_nm.get("done"))}
         fee = parse_budget(row.get("Fee", row.get("Budget", "0")))
         consumed = project_fee_consumed(proj_id, st.session_state.timesheets, role_rates)
         hours = project_hours_logged(proj_id, st.session_state.timesheets)
         pct = round((consumed / fee) * 100, 1) if fee > 0 else 0
-        cards.append({"Project name": row["Project name"], "Project ID": proj_id, "Client": row["Client"], "Stage": row["Stage"], "Status": row["Status"], "phase_info": phase_info, "min_upcoming": min_upcoming if min_upcoming is not None else 9999, "fee": fee, "consumed": consumed, "hours": hours, "pct": pct})
+        cards.append({"Project name": row["Project name"], "Project ID": proj_id, "Client": row["Client"], "Stage": row["Stage"], "Status": row["Status"], "phase_info": phase_info, "min_upcoming": min_upcoming if min_upcoming is not None else 9999, "fee": fee, "consumed": consumed, "hours": hours, "pct": pct, "next_ms": next_ms})
     cards.sort(key=lambda c: c["min_upcoming"])
     if not cards: st.info("No projects to display."); return
     cols = st.columns(3)
@@ -826,10 +836,20 @@ def build_traffic_light_cards(df):
             for p in card["phase_info"])
         fee_bar = (f"<div style='margin-top:10px'><div style='font-size:11px;color:#555;margin-bottom:3px'>Fee: ${card['consumed']:,.0f} of ${card['fee']:,.0f} used ({pct}%) &nbsp;·&nbsp; {card['hours']} hrs logged</div>"
                    f"<div style='background:#e0e0e0;border-radius:6px;height:8px;overflow:hidden'><div style='width:{min(pct,100)}%;height:100%;background:{fc};border-radius:6px'></div></div></div>") if card["fee"] > 0 else ""
+        ms_html = ""
+        if card.get("next_ms"):
+            nm = card["next_ms"]
+            _dd = nm["days"]
+            _when = "today" if _dd == 0 else (f"in {_dd}d" if _dd > 0 else f"{-_dd}d ago")
+            _mc = "#2ecc71" if nm["done"] else ("#e74c3c" if _dd is not None and _dd < 0 else "#6c5ce7")
+            ms_html = (f"<div style='font-size:11px;color:#555;margin-bottom:10px'>"
+                       f"Next milestone: <strong style='color:#2c2c2c'>{nm['text']}</strong> "
+                       f"<span style='color:{_mc};font-weight:600'>{nm['date'].strftime('%d %b %Y')} ({_when})</span></div>")
         html = (f"<div style='border:1px solid #e3e1dd;border-radius:6px;padding:14px 16px;margin-bottom:6px;background:#ffffff;border-left:4px solid {sc};box-shadow:0 1px 3px rgba(0,0,0,0.04)'>"
                 f"<div style='font-weight:700;font-size:15px;margin-bottom:2px;color:#1a1a1a'>{proj}</div>"
                 f"<div style='font-size:12px;color:#6b6b6b;margin-bottom:8px'>{card['Client']} &nbsp;&middot;&nbsp;<span style='color:{sc};font-weight:600'>{card['Status']}</span></div>"
                 f"<div style='font-size:11px;color:#888;margin-bottom:10px'>Current stage: <strong style='color:#2c2c2c'>{card['Stage']}</strong></div>"
+                f"{ms_html}"
                 f"<div style='display:flex;flex-wrap:wrap;gap:8px'>{dots}</div>{fee_bar}</div>")
         with cols[i % 3]:
             st.markdown(html, unsafe_allow_html=True)
@@ -1346,7 +1366,14 @@ elif page == "Projects":
             if ms:
                 done = sum(1 for x in ms if x["done"])
                 st.progress(int(done / len(ms) * 100), text=f"{done}/{len(ms)} complete")
-                for x in ms: st.markdown(f"- {'✅' if x['done'] else '⬜'} {x['text']}")
+                def _ms_sort_key(x):
+                    md = parse_date(x.get("date"))
+                    return (md is None, md or pd.Timestamp.max.date())
+                for x in sorted(ms, key=_ms_sort_key):
+                    _box = '✅' if x["done"] else '⬜'
+                    _md = parse_date(x.get("date"))
+                    _dlabel = f" &nbsp;&middot;&nbsp; <span style='color:#888'>{_md.strftime('%d %b %Y')}</span>" if _md else ""
+                    st.markdown(f"- {_box} {x['text']}{_dlabel}", unsafe_allow_html=True)
             else: st.caption("No milestones.")
             st.markdown("### Compliance")
             dc = compliance_to_list(prow.get("Compliance checklist", ""))
