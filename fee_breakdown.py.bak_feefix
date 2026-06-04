@@ -115,9 +115,13 @@ def render_fee_breakdown(act, role_rates, default_roles, save_estimate_lines, cr
     and breakdown total update instantly as you type. Each phase has its own
     Save button to persist the current values to estimate_lines.
 
-    Each subtask carries hours for EVERY role (each contributing at a
-    different capacity). On Save, one estimate line is written per
-    (task, role) combination that has hours > 0.
+    Parameters
+    ----------
+    act : str               Active Estimate ID.
+    role_rates : dict       Role -> hourly rate.
+    default_roles : dict     DEFAULT_ROLES (role -> default rate).
+    save_estimate_lines : callable  Persists st.session_state.estimate_lines.
+    create_id : callable     Returns a new unique id string.
     """
     roles = list(default_roles.keys())
     st.session_state.estimate_lines = _ensure_columns(st.session_state.estimate_lines)
@@ -144,89 +148,70 @@ def render_fee_breakdown(act, role_rates, default_roles, save_estimate_lines, cr
         unsafe_allow_html=True,
     )
     st.markdown("### Fee breakdown")
-    st.caption("Toggle each task on/off and set the hours for every role that "
-               "contributes to it. Disabled tasks are excluded from the fee. "
-               "Values update as you type; click Save to store each phase.")
-
-    def _keep_open(open_key):
-        # Fired before the rerun triggered by editing any input in a phase, so
-        # the expander stays open instead of collapsing while you type.
-        st.session_state[open_key] = True
+    st.caption("Toggle each task on/off and customise its role and hours. "
+               "Disabled tasks are excluded from the fee total. Values update "
+               "as you type; click Save to store each phase.")
 
     grand_active = 0.0
     for phase, tasks in BREAKDOWN_TASKS.items():
         phase_lines = lines[(lines["Estimate ID"] == act) & (lines["Phase"] == phase)]
-        open_key = f"feeopen_{act}_{phase}"
-        st.session_state.setdefault(open_key, False)
 
         # Compute this phase's live subtotal from current widget state (if the
         # widgets exist yet) falling back to the saved values.
         phase_total = 0.0
         for i, task in enumerate(tasks):
             existing = phase_lines[phase_lines["Task"] == task]
+            has = not existing.empty
             on_key = f"on_{act}_{phase}_{i}"
-            on = st.session_state.get(on_key, (not existing.empty))
-            if not on:
-                continue
-            for r, role in enumerate(roles):
-                hrs_key = f"hrs_{act}_{phase}_{i}_{r}"
-                if hrs_key in st.session_state:
-                    hrs = _to_float(st.session_state.get(hrs_key, 0.0))
-                else:
-                    erow = existing[existing["Role"] == role]
-                    hrs = _to_float(erow.iloc[0]["Hours"]) if not erow.empty else 0.0
-                phase_total += hrs * rate_for(role)
+            role_key = f"role_{act}_{phase}_{i}"
+            hrs_key = f"hrs_{act}_{phase}_{i}"
+            on = st.session_state.get(on_key, _to_bool(existing.iloc[0]["Active"]) if has else True)
+            role = st.session_state.get(role_key,
+                existing.iloc[0]["Role"] if has and existing.iloc[0]["Role"] in roles else roles[0])
+            hrs = st.session_state.get(hrs_key, _to_float(existing.iloc[0]["Hours"]) if has else 0.0)
+            if on:
+                phase_total += _to_float(hrs) * rate_for(role)
         grand_active += phase_total
 
-        with st.expander(f"{phase}  -  ${phase_total:,.0f}", expanded=st.session_state[open_key]):
-            # Header: Task | On | one Hours column per role | Line $
-            hc = st.columns([3, 0.7] + [1.1] * len(roles) + [1.4])
-            hc[0].markdown("**Task**")
-            hc[1].markdown("**On**")
-            for r, role in enumerate(roles):
-                hc[2 + r].markdown(f"**{role}**")
-            hc[-1].markdown("**Line $**")
-
+        with st.expander(f"{phase}  -  ${phase_total:,.0f}", expanded=False):
+            hc = st.columns([0.6, 4, 2, 1.4, 1.6])
+            hc[0].markdown("**On**")
+            hc[1].markdown("**Task**")
+            hc[2].markdown("**Role**")
+            hc[3].markdown("**Hours**")
+            hc[4].markdown("**Line $**")
             for i, task in enumerate(tasks):
                 existing = phase_lines[phase_lines["Task"] == task]
                 has = not existing.empty
                 cur_active = _to_bool(existing.iloc[0]["Active"]) if has else True
-                c = st.columns([3, 0.7] + [1.1] * len(roles) + [1.4])
-                c[0].markdown(task)
-                on = c[1].checkbox(" ", value=cur_active, key=f"on_{act}_{phase}_{i}",
-                                   label_visibility="collapsed",
-                                   on_change=_keep_open, args=(open_key,))
-                line_val = 0.0
-                for r, role in enumerate(roles):
-                    erow = existing[existing["Role"] == role]
-                    cur_hrs = _to_float(erow.iloc[0]["Hours"]) if not erow.empty else 0.0
-                    hrs = c[2 + r].number_input(
-                        " ", min_value=0.0, step=0.5, value=cur_hrs,
-                        key=f"hrs_{act}_{phase}_{i}_{r}",
-                        label_visibility="collapsed", disabled=not on,
-                        on_change=_keep_open, args=(open_key,))
-                    line_val += _to_float(hrs) * rate_for(role)
-                c[-1].markdown(f"${line_val:,.0f}" if on else "_off_")
-
+                cur_role = existing.iloc[0]["Role"] if has and existing.iloc[0]["Role"] in roles else roles[0]
+                cur_hrs = _to_float(existing.iloc[0]["Hours"]) if has else 0.0
+                c = st.columns([0.6, 4, 2, 1.4, 1.6])
+                on = c[0].checkbox(" ", value=cur_active, key=f"on_{act}_{phase}_{i}",
+                                   label_visibility="collapsed")
+                c[1].markdown(task)
+                role = c[2].selectbox(" ", roles, index=roles.index(cur_role),
+                                      key=f"role_{act}_{phase}_{i}", label_visibility="collapsed")
+                hrs = c[3].number_input(" ", min_value=0.0, step=0.5, value=cur_hrs,
+                                        key=f"hrs_{act}_{phase}_{i}", label_visibility="collapsed")
+                line_val = (_to_float(hrs) * rate_for(role)) if on else 0.0
+                c[4].markdown(f"${line_val:,.0f}" if on else "_off_")
             if st.button(f"Save {phase}", key=f"savebtn_{act}_{phase}", use_container_width=True):
                 df = st.session_state.estimate_lines
                 df = df[~((df["Estimate ID"] == act) & (df["Phase"] == phase))]
                 new_rows = []
                 for i, task in enumerate(tasks):
                     on = bool(st.session_state.get(f"on_{act}_{phase}_{i}", True))
-                    for r, role in enumerate(roles):
-                        hrs = _to_float(st.session_state.get(f"hrs_{act}_{phase}_{i}_{r}", 0.0))
-                        if hrs <= 0:
-                            continue
-                        new_rows.append({
-                            "Line ID": create_id(), "Estimate ID": act, "Phase": phase,
-                            "Task": task, "Role": role, "Hours": hrs,
-                            "Rate": rate_for(role), "Active": on,
-                        })
+                    role = st.session_state.get(f"role_{act}_{phase}_{i}", roles[0])
+                    hrs = _to_float(st.session_state.get(f"hrs_{act}_{phase}_{i}", 0.0))
+                    new_rows.append({
+                        "Line ID": create_id(), "Estimate ID": act, "Phase": phase,
+                        "Task": task, "Role": role, "Hours": hrs,
+                        "Rate": rate_for(role), "Active": on,
+                    })
                 st.session_state.estimate_lines = pd.concat(
                     [df, pd.DataFrame(new_rows)], ignore_index=True)
                 save_estimate_lines(st.session_state.estimate_lines)
                 st.success(f"Saved {phase}.")
                 st.rerun()
-
     st.markdown(f"**Breakdown total (active tasks): ${grand_active:,.0f}**")

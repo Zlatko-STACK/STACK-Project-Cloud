@@ -1,16 +1,4 @@
 Line ID,Estimate ID,Phase,Role,Hours,Rate,Task,Active
-df9ac4bd,32c1a7da,Project Preliminaries,Technician,10.0,85.0,Project initiation and commencement,True
-38e8ce8a,32c1a7da,Project Preliminaries,Technician,4.0,85.0,Stakeholder meeting,True
-27c71d41,32c1a7da,Project Preliminaries,Technician,0.0,85.0,Review existing building information / aerial details,False
-d68406a0,32c1a7da,Project Preliminaries,Technician,0.0,85.0,Brief setup for the project,True
-bd2c798c,32c1a7da,Project Preliminaries,Technician,0.0,85.0,Conduct site visit / scoping,True
-0581307e,32c1a7da,Project Preliminaries,Technician,0.0,85.0,Initial client briefing meeting,True
-f08370de,32c1a7da,Project Preliminaries,Technician,0.0,85.0,Prepare existing layout plans,True
-783c7681,32c1a7da,Project Preliminaries,Technician,0.0,85.0,Prepare preliminary test fit / sample,True
-8c381141,32c1a7da,Project Preliminaries,Technician,0.0,85.0,Personnel handover to iteration,True
-b3614855,32c1a7da,Project Preliminaries,Technician,0.0,85.0,PM functions - programme and comms,True
-b5180c6f,32c1a7da,Project Preliminaries,Technician,0.0,85.0,Preliminary cost estimate and markups,True
-e4225a79,32c1a7da,Project Preliminaries,Technician,0.0,85.0,Project PCG meetings,True
 6ae31cfe,32c1a7da,Concept Design,Technician,8.0,85.0,Functional briefing,True
 3b959fbd,32c1a7da,Concept Design,Technician,0.0,85.0,Operational briefing,True
 7404a4eb,32c1a7da,Concept Design,Technician,0.0,85.0,AV briefing,True
@@ -48,3 +36,6 @@ f3b3365a,32c1a7da,Construction Phase,Technician,0.0,85.0,Defecting,True
 e70d84dc,32c1a7da,Construction Phase,Technician,0.0,85.0,Close out,True
 cd2ab5a3,32c1a7da,Construction Phase,Technician,0.0,85.0,O&M documents,True
 f937d46a,32c1a7da,Construction Phase,Technician,0.0,85.0,Lodge CCC,True
+8b9d0b0a,32c1a7da,Project Preliminaries,Technician,10.0,85.0,Project initiation and commencement,True
+919736d5,32c1a7da,Project Preliminaries,Graduate,8.0,95.0,Project initiation and commencement,True
+9a2bbe69,32c1a7da,Project Preliminaries,Technician,4.0,85.0,Stakeholder meeting,True
