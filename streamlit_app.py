@@ -24,7 +24,7 @@ LEAVE_FILE = Path(__file__).parent / "leave.csv"
 BUILDINGS_FILE = Path(__file__).parent / "buildings.csv"
 TENANCY_FILE = Path(__file__).parent / "building_tenancies.csv"
 
-STAGES = ["Concept", "Design Development", "Tender", "Construction", "Handover", "Code of Compliance"]
+STAGES = ["Project Preliminaries", "Concept Design", "Developed & Detailed Design", "Procurement and Council", "Construction Phase"]
 STATUSES = ["On track", "At risk", "Delayed", "Complete"]
 COMPLIANCE_TASKS = ["Fire safety sign-off", "Electrical certificate", "Plumbing certificate", "OHS inspection", "Code compliance certificate"]
 COLUMNS = ["Project ID", "Project name", "Client", "Company ID", "Location", "Project manager",
