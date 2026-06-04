@@ -1064,6 +1064,8 @@ with st.sidebar:
         "style='width:100%;display:block;filter:brightness(0) invert(1)' alt='STACK Interiors'/>"
         "</div></a>", unsafe_allow_html=True)
     page_index = PAGES.index(st.session_state.current_page) if st.session_state.current_page in PAGES else 0
+    if st.session_state.get("page_selector") != st.session_state.current_page and st.session_state.current_page in PAGES:
+        st.session_state.page_selector = st.session_state.current_page
     page = st.selectbox("Page", PAGES, index=page_index, key="page_selector")
     if page != st.session_state.current_page:
         st.session_state.current_page = page; st.rerun()
@@ -1521,7 +1523,7 @@ elif page == "Timesheets":
             week_entries = ts[(ts["Team member"] == wt_member) & (ts["Date"].isin(day_keys))].copy()
 
             FIXED_NAMES = ["Admin", "WIP", "Design Team Meeting", "Red Dot Projects"]
-            PHASE_OPTIONS = STAGES + ["Concept Design", "Developed Design", "Detailed Design", "Project Meetings", "Project Set Up", "General"]
+            PHASE_OPTIONS = STAGES + FIXED_NAMES
             _seen = set(); PHASE_OPTIONS = [p for p in PHASE_OPTIONS if not (p in _seen or _seen.add(p))]
 
             allocated = []; seen_pn = set()
