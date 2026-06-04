@@ -988,10 +988,8 @@ h4, h5, h6 { color: #2c2c2c !important; font-weight: 600 !important; }
 [data-testid="stSidebar"] span[data-baseweb="tag"] { background-color: #F2C94C !important; color: #1a1a1a !important; }
 [data-testid="stSidebar"] span[data-baseweb="tag"] * { color: #1a1a1a !important; }
 [data-testid="stSidebar"] .stMarkdown p, [data-testid="stSidebar"] .stMarkdown li { color: #d8d8d8 !important; }
-[data-testid="stSidebar"] .stButton > button { background-color: #ffffff !important; color: #1a1a1a !important; border: 1px solid #1a1a1a !important; border-radius: 4px !important; font-weight: 600 !important; letter-spacing: 0.01em !important; transition: all 0.15s ease !important; }
-[data-testid="stSidebar"] .stButton > button:hover { background-color: #F2C94C !important; color: #1a1a1a !important; border: 1px solid #1a1a1a !important; }
-[data-testid="stSidebar"] .stButton > button div, [data-testid="stSidebar"] .stButton > button p, [data-testid="stSidebar"] .stButton > button span { color: #1a1a1a !important; }
-[data-testid="stSidebar"] .stButton > button:hover div, [data-testid="stSidebar"] .stButton > button:hover p, [data-testid="stSidebar"] .stButton > button:hover span { color: #1a1a1a !important; }
+[data-testid="stSidebar"] .stButton > button { background-color: #ffffff !important; color: #1a1a1a !important; border: none !important; border-radius: 4px !important; font-weight: 600 !important; transition: all 0.15s ease !important; }
+[data-testid="stSidebar"] .stButton > button:hover { background-color: #F2C94C !important; color: #1a1a1a !important; }
 [data-testid="stSidebar"] hr { border-color: #3d3d3d !important; }
 [data-testid="stSidebarCollapseButton"], [data-testid="collapsedControl"],
 [data-testid="stSidebarCollapsedControl"], button[kind="headerNoPadding"] { display: none !important; }
