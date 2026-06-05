@@ -7,6 +7,59 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 import fee_breakdown
+import calendar
+import datetime
+
+def render_calendar(projects_df):
+    """STACK-branded month calendar for the Dashboard right column."""
+    import calendar as _cal
+    import datetime as _dt
+    PRIMARY = "#2c3e50"; ACCENT = "#2ecc71"; MUTED = "#aaaaaa"; TXT = "#2c2c2c"
+    today = _dt.date.today()
+    if "cal_year" not in st.session_state: st.session_state.cal_year = today.year
+    if "cal_month" not in st.session_state: st.session_state.cal_month = today.month
+    y = st.session_state.cal_year; m = st.session_state.cal_month
+    # collect days in this month that have a project start or target-completion
+    marked = set()
+    try:
+        for _, _p in projects_df.iterrows():
+            for _f in ("Start date", "Target completion"):
+                _v = parse_date(_p.get(_f), None)
+                if _v is not None and _v.year == y and _v.month == m:
+                    marked.add(int(_v.day))
+    except Exception:
+        pass
+    # header: prev | Month Year | next
+    hc1, hc2, hc3 = st.columns([1, 4, 1])
+    if hc1.button("\u2039", key="cal_prev", use_container_width=True):
+        st.session_state.cal_month -= 1
+        if st.session_state.cal_month < 1:
+            st.session_state.cal_month = 12; st.session_state.cal_year -= 1
+        st.rerun()
+    hc2.markdown(f"<div style='text-align:center;font-weight:700;font-size:18px;color:{PRIMARY};padding-top:4px'>{_cal.month_name[m]} {y}</div>", unsafe_allow_html=True)
+    if hc3.button("\u203a", key="cal_next", use_container_width=True):
+        st.session_state.cal_month += 1
+        if st.session_state.cal_month > 12:
+            st.session_state.cal_month = 1; st.session_state.cal_year += 1
+        st.rerun()
+    # weekday headers Mon..Sun
+    head = "".join(f"<th style='padding:6px 0;font-size:12px;color:{TXT};font-weight:600;text-align:center;width:14.28%'>{d}</th>" for d in ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"])
+    rows = ""
+    for week in _cal.Calendar(firstweekday=0).monthdayscalendar(y, m):
+        cells = ""
+        for day in week:
+            if day == 0:
+                cells += "<td style='padding:6px 0;'></td>"; continue
+            is_today = (day == today.day and m == today.month and y == today.year)
+            dot = f"<div style='width:5px;height:5px;border-radius:50%;background:{ACCENT};margin:2px auto 0'></div>" if day in marked else "<div style='height:7px'></div>"
+            if is_today:
+                num = f"<div style='background:{PRIMARY};color:#fff;width:28px;height:28px;line-height:28px;border-radius:50%;margin:0 auto;font-size:13px'>{day}</div>"
+            else:
+                num = f"<div style='color:{TXT};width:28px;height:28px;line-height:28px;margin:0 auto;font-size:13px'>{day}</div>"
+            cells += f"<td style='padding:4px 0;text-align:center'>{num}{dot}</td>"
+        rows += f"<tr>{cells}</tr>"
+    st.markdown(f"<table style='width:100%;border-collapse:collapse'><thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>", unsafe_allow_html=True)
+
 
 PAGE_TITLE = "STACK Project Cloud"
 DATA_FILE = Path(__file__).parent / "projects.csv"
@@ -1168,92 +1221,7 @@ if page == "Dashboard":
         if st.button("📂 Open Projects workspace →", use_container_width=True, key="goto_projects"):
             st.session_state.nav_target = "Projects"; st.rerun()
     with right:
-        st.subheader("Update an existing project")
-        proj_options = [""] + st.session_state.projects["Project name"].dropna().unique().tolist()
-        try: di = proj_options.index(st.session_state.selected_project)
-        except ValueError: di = 0
-        selected = st.selectbox("Select a project", proj_options, index=di, key=f"project_edit_select_{st.session_state.selectbox_key}")
-        if selected != st.session_state.selected_project: st.session_state.selected_project = selected; st.rerun()
-        if st.session_state.selected_project:
-            selected = st.session_state.selected_project
-            pidx = st.session_state.projects[st.session_state.projects["Project name"] == selected].index[0]
-            cur = st.session_state.projects.loc[pidx].to_dict()
-            proj_id = cur.get("Project ID", "")
-            ms_key = f"ms_{proj_id}"
-
-            def _clear_edit_state():
-                st.session_state.pop(ms_key, None)
-                st.session_state.pop(f"team_{proj_id}_members", None)
-
-            if st.button("✕ Cancel", key="cancel_edit"):
-                _clear_edit_state(); st.session_state.selected_project = ""; st.session_state.selectbox_key += 1; st.rerun()
-
-            # ── live editor: team ──
-            st.markdown("**Team members**")
-            sel_members = st.multiselect("Team members", member_names,
-                default=parse_team_members(cur.get("Team members", "")), key=f"team_{proj_id}_members", label_visibility="collapsed")
-
-            # ── live editor: milestones ──
-            st.markdown("**Milestones**")
-            if ms_key not in st.session_state:
-                st.session_state[ms_key] = parse_milestones_struct(cur.get("Milestones", ""))
-            ms_items = st.session_state[ms_key]
-            _rm = None
-            for it in ms_items:
-                mc0, mc1, mc3, mc2 = st.columns([0.6, 3.4, 1.4, 0.6])
-                it["done"] = mc0.checkbox("done", value=it["done"], key=f"{ms_key}_done_{it['id']}", label_visibility="collapsed")
-                it["text"] = mc1.text_input("ms", value=it["text"], key=f"{ms_key}_text_{it['id']}", label_visibility="collapsed", placeholder="Milestone…")
-                _dv = parse_date(it.get("date"))
-                _d = mc3.date_input("date", value=_dv, key=f"{ms_key}_date_{it['id']}", label_visibility="collapsed", format="YYYY-MM-DD")
-                it["date"] = _d.strftime("%Y-%m-%d") if _d else None
-                if mc2.button("✕", key=f"{ms_key}_rm_{it['id']}"): _rm = it["id"]
-            if _rm is not None:
-                st.session_state[ms_key] = [x for x in ms_items if x["id"] != _rm]; st.rerun()
-            _tot = sum(1 for x in ms_items if x["text"].strip())
-            _dn = sum(1 for x in ms_items if x["done"] and x["text"].strip())
-            if _tot: st.progress(int(_dn / _tot * 100), text=f"{_dn}/{_tot} complete")
-            if st.button("＋ Add milestone", key=f"{ms_key}_add"):
-                ms_items.append({"id": create_id(), "text": "", "done": False, "date": None}); st.rerun()
-
-            with st.form("edit_project_form"):
-                st.text_input("Project ID", value=cur.get("Project ID", ""), disabled=True)
-                comp_opts = ["(none)"] + company_names; cur_comp = cur.get("Client", "")
-                e_company = st.selectbox("Client (company)", comp_opts, index=comp_opts.index(cur_comp) if cur_comp in comp_opts else 0)
-                e_location = st.text_input("Location", value=cur.get("Location", ""))
-                e_manager = st.text_input("Project manager", value=cur.get("Project manager", ""))
-                c1, c2 = st.columns(2)
-                with c1: e_start = st.date_input("Start date", value=parse_date(cur.get("Start date"), pd.Timestamp.now().date()))
-                with c2: e_target = st.date_input("Target completion", value=parse_date(cur.get("Target completion"), pd.Timestamp.now().date()))
-                e_stage = st.selectbox("Stage", STAGES, index=STAGES.index(cur.get("Stage")) if cur.get("Stage") in STAGES else 0)
-                e_status = st.selectbox("Status", STATUSES, index=STATUSES.index(cur.get("Status")) if cur.get("Status") in STATUSES else 0)
-                e_budget = st.number_input("Budget", min_value=0.0, step=100.0, value=parse_budget(cur.get("Budget", "0")), format="%f")
-                e_fee = st.number_input("Total fee ($)", min_value=0.0, step=100.0, value=parse_budget(cur.get("Fee", "0")), format="%f")
-                e_weekly_hours = st.number_input("Weekly hours allocated", min_value=0.0, step=1.0, value=parse_weekly_hours(cur.get("Weekly hours allocated", "0")))
-                st.markdown("**Phase schedule**")
-                st.caption("Tick the phases this project runs through, then pick start and finish dates.")
-                _pstart = parse_date(cur.get("Start date"), pd.Timestamp.now().date())
-                _pend = parse_date(cur.get("Target completion"), _pstart)
-                _existing = {p["Stage"]: p for p in parse_phase_schedule(cur.get("Phase schedule", ""))}
-                phase_inputs = {}
-                for stage in STAGES:
-                    ph = _existing.get(stage)
-                    ci, cs, ce = st.columns([1.6, 1, 1])
-                    inc = ci.checkbox(stage, value=ph is not None, key=f"e_phase_inc_{stage}")
-                    sd = cs.date_input("Start", value=ph["Start date"].date() if ph else _pstart, key=f"e_phase_start_{stage}", label_visibility="collapsed")
-                    ed = ce.date_input("Finish", value=ph["Target completion"].date() if ph else _pend, key=f"e_phase_end_{stage}", label_visibility="collapsed")
-                    phase_inputs[stage] = (inc, sd, ed)
-                e_compliance = st.multiselect("Compliance checklist", COMPLIANCE_TASKS, default=compliance_to_list(cur.get("Compliance checklist", "")))
-                e_notes = st.text_area("Notes", value=cur.get("Notes", ""), height=80)
-                st.progress(stage_progress(cur.get("Stage")))
-                comp_row = st.session_state.companies[st.session_state.companies["Name"] == e_company]
-                comp_id = comp_row.iloc[0]["Company ID"] if not comp_row.empty else ""
-                upd = st.form_submit_button("Update project"); dlt = st.form_submit_button("Delete project")
-                if upd:
-                    st.session_state.projects = add_or_update_project({"Project ID": cur.get("Project ID", ""), "Project name": selected, "Client": e_company if e_company != "(none)" else "", "Company ID": comp_id, "Location": e_location, "Project manager": e_manager, "Start date": e_start.strftime("%Y-%m-%d"), "Target completion": e_target.strftime("%Y-%m-%d"), "Stage": e_stage, "Status": e_status, "Budget": str(e_budget), "Fee": str(e_fee), "Weekly hours allocated": str(e_weekly_hours), "Phase schedule": build_phase_schedule(phase_inputs), "Milestones": serialize_milestones_struct(ms_items), "Team members": normalize_team_members(sel_members), "Compliance checklist": normalize_checklist(e_compliance), "Notes": e_notes}, st.session_state.projects)
-                    save_projects(st.session_state.projects); _clear_edit_state(); st.session_state.message = f"Updated '{selected}'."; st.session_state.selected_project = ""; st.session_state.selectbox_key += 1; st.rerun()
-                if dlt:
-                    st.session_state.projects = st.session_state.projects[st.session_state.projects["Project name"] != selected]
-                    save_projects(st.session_state.projects); _clear_edit_state(); st.session_state.message = f"Deleted '{selected}'."; st.session_state.selected_project = ""; st.session_state.selectbox_key += 1; st.rerun()
+        render_calendar(st.session_state.projects)
     st.markdown("---")
     st.subheader("Project Timelines")
     view_tab1, view_tab2 = st.tabs(["📊 Gantt", "🟦 Cards"])
@@ -1439,6 +1407,94 @@ elif page == "Projects":
                         f"<div style='font-size:11px;color:#888;margin-top:6px'>⏱ {hours} hrs logged</div>{bar}</div>", unsafe_allow_html=True)
                     if st.button("Open project", key=f"open_proj_{pid or name}", use_container_width=True):
                         st.session_state.active_project_view = name; st.rerun()
+
+    st.markdown("---")
+    st.subheader("Update an existing project")
+    proj_options = [""] + st.session_state.projects["Project name"].dropna().unique().tolist()
+    try: di = proj_options.index(st.session_state.selected_project)
+    except ValueError: di = 0
+    selected = st.selectbox("Select a project", proj_options, index=di, key=f"project_edit_select_{st.session_state.selectbox_key}")
+    if selected != st.session_state.selected_project: st.session_state.selected_project = selected; st.rerun()
+    if st.session_state.selected_project:
+        selected = st.session_state.selected_project
+        pidx = st.session_state.projects[st.session_state.projects["Project name"] == selected].index[0]
+        cur = st.session_state.projects.loc[pidx].to_dict()
+        proj_id = cur.get("Project ID", "")
+        ms_key = f"ms_{proj_id}"
+
+        def _clear_edit_state():
+            st.session_state.pop(ms_key, None)
+            st.session_state.pop(f"team_{proj_id}_members", None)
+
+        if st.button("✕ Cancel", key="cancel_edit"):
+            _clear_edit_state(); st.session_state.selected_project = ""; st.session_state.selectbox_key += 1; st.rerun()
+
+        # ── live editor: team ──
+        st.markdown("**Team members**")
+        sel_members = st.multiselect("Team members", member_names,
+            default=parse_team_members(cur.get("Team members", "")), key=f"team_{proj_id}_members", label_visibility="collapsed")
+
+        # ── live editor: milestones ──
+        st.markdown("**Milestones**")
+        if ms_key not in st.session_state:
+            st.session_state[ms_key] = parse_milestones_struct(cur.get("Milestones", ""))
+        ms_items = st.session_state[ms_key]
+        _rm = None
+        for it in ms_items:
+            mc0, mc1, mc3, mc2 = st.columns([0.6, 3.4, 1.4, 0.6])
+            it["done"] = mc0.checkbox("done", value=it["done"], key=f"{ms_key}_done_{it['id']}", label_visibility="collapsed")
+            it["text"] = mc1.text_input("ms", value=it["text"], key=f"{ms_key}_text_{it['id']}", label_visibility="collapsed", placeholder="Milestone…")
+            _dv = parse_date(it.get("date"))
+            _d = mc3.date_input("date", value=_dv, key=f"{ms_key}_date_{it['id']}", label_visibility="collapsed", format="YYYY-MM-DD")
+            it["date"] = _d.strftime("%Y-%m-%d") if _d else None
+            if mc2.button("✕", key=f"{ms_key}_rm_{it['id']}"): _rm = it["id"]
+        if _rm is not None:
+            st.session_state[ms_key] = [x for x in ms_items if x["id"] != _rm]; st.rerun()
+        _tot = sum(1 for x in ms_items if x["text"].strip())
+        _dn = sum(1 for x in ms_items if x["done"] and x["text"].strip())
+        if _tot: st.progress(int(_dn / _tot * 100), text=f"{_dn}/{_tot} complete")
+        if st.button("＋ Add milestone", key=f"{ms_key}_add"):
+            ms_items.append({"id": create_id(), "text": "", "done": False, "date": None}); st.rerun()
+
+        with st.form("edit_project_form"):
+            st.text_input("Project ID", value=cur.get("Project ID", ""), disabled=True)
+            comp_opts = ["(none)"] + company_names; cur_comp = cur.get("Client", "")
+            e_company = st.selectbox("Client (company)", comp_opts, index=comp_opts.index(cur_comp) if cur_comp in comp_opts else 0)
+            e_location = st.text_input("Location", value=cur.get("Location", ""))
+            e_manager = st.text_input("Project manager", value=cur.get("Project manager", ""))
+            c1, c2 = st.columns(2)
+            with c1: e_start = st.date_input("Start date", value=parse_date(cur.get("Start date"), pd.Timestamp.now().date()))
+            with c2: e_target = st.date_input("Target completion", value=parse_date(cur.get("Target completion"), pd.Timestamp.now().date()))
+            e_stage = st.selectbox("Stage", STAGES, index=STAGES.index(cur.get("Stage")) if cur.get("Stage") in STAGES else 0)
+            e_status = st.selectbox("Status", STATUSES, index=STATUSES.index(cur.get("Status")) if cur.get("Status") in STATUSES else 0)
+            e_budget = st.number_input("Budget", min_value=0.0, step=100.0, value=parse_budget(cur.get("Budget", "0")), format="%f")
+            e_fee = st.number_input("Total fee ($)", min_value=0.0, step=100.0, value=parse_budget(cur.get("Fee", "0")), format="%f")
+            e_weekly_hours = st.number_input("Weekly hours allocated", min_value=0.0, step=1.0, value=parse_weekly_hours(cur.get("Weekly hours allocated", "0")))
+            st.markdown("**Phase schedule**")
+            st.caption("Tick the phases this project runs through, then pick start and finish dates.")
+            _pstart = parse_date(cur.get("Start date"), pd.Timestamp.now().date())
+            _pend = parse_date(cur.get("Target completion"), _pstart)
+            _existing = {p["Stage"]: p for p in parse_phase_schedule(cur.get("Phase schedule", ""))}
+            phase_inputs = {}
+            for stage in STAGES:
+                ph = _existing.get(stage)
+                ci, cs, ce = st.columns([1.6, 1, 1])
+                inc = ci.checkbox(stage, value=ph is not None, key=f"e_phase_inc_{stage}")
+                sd = cs.date_input("Start", value=ph["Start date"].date() if ph else _pstart, key=f"e_phase_start_{stage}", label_visibility="collapsed")
+                ed = ce.date_input("Finish", value=ph["Target completion"].date() if ph else _pend, key=f"e_phase_end_{stage}", label_visibility="collapsed")
+                phase_inputs[stage] = (inc, sd, ed)
+            e_compliance = st.multiselect("Compliance checklist", COMPLIANCE_TASKS, default=compliance_to_list(cur.get("Compliance checklist", "")))
+            e_notes = st.text_area("Notes", value=cur.get("Notes", ""), height=80)
+            st.progress(stage_progress(cur.get("Stage")))
+            comp_row = st.session_state.companies[st.session_state.companies["Name"] == e_company]
+            comp_id = comp_row.iloc[0]["Company ID"] if not comp_row.empty else ""
+            upd = st.form_submit_button("Update project"); dlt = st.form_submit_button("Delete project")
+            if upd:
+                st.session_state.projects = add_or_update_project({"Project ID": cur.get("Project ID", ""), "Project name": selected, "Client": e_company if e_company != "(none)" else "", "Company ID": comp_id, "Location": e_location, "Project manager": e_manager, "Start date": e_start.strftime("%Y-%m-%d"), "Target completion": e_target.strftime("%Y-%m-%d"), "Stage": e_stage, "Status": e_status, "Budget": str(e_budget), "Fee": str(e_fee), "Weekly hours allocated": str(e_weekly_hours), "Phase schedule": build_phase_schedule(phase_inputs), "Milestones": serialize_milestones_struct(ms_items), "Team members": normalize_team_members(sel_members), "Compliance checklist": normalize_checklist(e_compliance), "Notes": e_notes}, st.session_state.projects)
+                save_projects(st.session_state.projects); _clear_edit_state(); st.session_state.message = f"Updated '{selected}'."; st.session_state.selected_project = ""; st.session_state.selectbox_key += 1; st.rerun()
+            if dlt:
+                st.session_state.projects = st.session_state.projects[st.session_state.projects["Project name"] != selected]
+                save_projects(st.session_state.projects); _clear_edit_state(); st.session_state.message = f"Deleted '{selected}'."; st.session_state.selected_project = ""; st.session_state.selectbox_key += 1; st.rerun()
 
 # ── TASK TRACKER ──────────────────────────────────────────────────────────────
 
