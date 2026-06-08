@@ -10,23 +10,33 @@ import fee_breakdown
 import calendar
 import datetime
 
+# ── Brand colour palette (module-level) ──
+PRIMARY = "#2c3e50"; ACCENT = "#2ecc71"; MUTED = "#aaaaaa"; TXT = "#2c2c2c"
+
 def render_calendar(projects_df):
     """STACK-branded month calendar for the Dashboard right column."""
     import calendar as _cal
     import datetime as _dt
-    PRIMARY = "#2c3e50"; ACCENT = "#2ecc71"; MUTED = "#aaaaaa"; TXT = "#2c2c2c"
-    today = _dt.date.today()
+    try:
+        from zoneinfo import ZoneInfo as _ZI
+        today = _dt.datetime.now(_ZI("Pacific/Auckland")).date()
+    except Exception:
+        today = _dt.date.today()
     if "cal_year" not in st.session_state: st.session_state.cal_year = today.year
     if "cal_month" not in st.session_state: st.session_state.cal_month = today.month
     y = st.session_state.cal_year; m = st.session_state.cal_month
     # collect days in this month that have a project start or target-completion
     marked = set()
+    marked_labels = {}
     try:
         for _, _p in projects_df.iterrows():
             for _f in ("Start date", "Target completion"):
                 _v = parse_date(_p.get(_f), None)
                 if _v is not None and _v.year == y and _v.month == m:
                     marked.add(int(_v.day))
+                    _lbl = str(_p.get("Project name", "") or "").strip()
+                    _lbl = (_lbl + " \u2014 " + _f) if _lbl else _f
+                    marked_labels.setdefault(int(_v.day), []).append(_lbl)
     except Exception:
         pass
     # header: prev | Month Year | next
@@ -56,7 +66,10 @@ def render_calendar(projects_df):
                 num = f"<div style='background:{PRIMARY};color:#fff;width:28px;height:28px;line-height:28px;border-radius:50%;margin:0 auto;font-size:13px'>{day}</div>"
             else:
                 num = f"<div style='color:{TXT};width:28px;height:28px;line-height:28px;margin:0 auto;font-size:13px'>{day}</div>"
-            cells += f"<td style='padding:4px 0;text-align:center'>{num}{dot}</td>"
+            _tip = "; ".join(marked_labels.get(day, [])) if day in marked else ""
+            _tip_attr = (" title=\"" + _tip.replace('"', "&quot;") + "\"") if _tip else ""
+            _cur = "cursor:help;" if _tip else ""
+            cells += f"<td style='padding:4px 0;text-align:center;{_cur}'{_tip_attr}>{num}{dot}</td>"
         rows += f"<tr>{cells}</tr>"
     st.markdown(f"<table style='width:100%;border-collapse:collapse'><thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>", unsafe_allow_html=True)
 
@@ -1914,21 +1927,38 @@ elif page == "Clients":
     if not st.session_state.companies.empty:
         status_counts = st.session_state.companies["Status"].value_counts().reset_index()
         status_counts.columns = ["Status", "Count"]
-        pie = alt.Chart(status_counts).mark_arc(innerRadius=50).encode(
-            theta=alt.Theta("Count:Q"),
-            color=alt.Color("Status:N", scale=alt.Scale(domain=list(CLIENT_STATUS_COLOURS.keys()), range=list(CLIENT_STATUS_COLOURS.values())), legend=alt.Legend(title="Status")),
-            tooltip=[alt.Tooltip("Status:N"), alt.Tooltip("Count:Q")]).properties(width=260, height=260, title="Clients by status")
-        text = alt.Chart(status_counts).mark_text(radius=130, fontSize=12, fontWeight="bold").encode(
-            theta=alt.Theta("Count:Q", stack=True), text=alt.Text("Count:Q"), color=alt.value("#333"), order=alt.Order("Count:Q"))
-        chart = alt.layer(pie, text).resolve_scale(color="independent")
-        col_chart, col_summary, _ = st.columns([1, 1, 2])
-        with col_chart: st.altair_chart(chart, use_container_width=False)
+        total_clients = int(status_counts["Count"].sum())
+        donut = alt.Chart(status_counts).mark_arc(innerRadius=62, cornerRadius=4).encode(
+            theta=alt.Theta("Count:Q", stack=True),
+            color=alt.Color("Status:N",
+                scale=alt.Scale(domain=list(CLIENT_STATUS_COLOURS.keys()), range=list(CLIENT_STATUS_COLOURS.values())),
+                legend=None),
+            tooltip=[alt.Tooltip("Status:N", title="Status"), alt.Tooltip("Count:Q", title="Clients")],
+        ).properties(width=200, height=200)
+        centre = alt.Chart(pd.DataFrame({"n": [total_clients]})).mark_text(
+            fontSize=34, fontWeight="bold", color=PRIMARY, dy=-6,
+        ).encode(text="n:Q")
+        centre_lbl = alt.Chart(pd.DataFrame({"t": ["clients"]})).mark_text(
+            fontSize=11, color="#9aa0a6", dy=16,
+        ).encode(text="t:N")
+        chart = (donut + centre + centre_lbl).configure_view(strokeWidth=0).configure(background="transparent")
+        col_chart, col_summary = st.columns([1, 1.25], gap="large")
+        with col_chart:
+            st.altair_chart(chart, use_container_width=True)
         with col_summary:
-            st.markdown("**Summary**")
-            for s in CLIENT_STATUSES:
+            scards = st.columns(2)
+            for i, s in enumerate(CLIENT_STATUSES):
                 cnt = int(status_counts[status_counts["Status"] == s]["Count"].sum()) if s in status_counts["Status"].values else 0
                 colour = CLIENT_STATUS_COLOURS[s]
-                st.markdown(f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:6px'><div style='width:14px;height:14px;border-radius:50%;background:{colour}'></div><span style='font-size:13px'><strong>{s}</strong>: {cnt}</span></div>", unsafe_allow_html=True)
+                with scards[i % 2]:
+                    st.markdown(
+                        f"<div style=\"background:#ffffff;border:1px solid #ececec;border-left:4px solid {colour};"
+                        f"border-radius:10px;padding:12px 14px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.04)\">"
+                        f"<div style=\"display:flex;align-items:center;gap:7px;margin-bottom:4px\">"
+                        f"<span style=\"width:9px;height:9px;border-radius:50%;background:{colour};display:inline-block\"></span>"
+                        f"<span style=\"font-size:12px;color:#6b7280;font-weight:600;letter-spacing:.02em\">{s}</span></div>"
+                        f"<div style=\"font-size:24px;font-weight:700;color:{PRIMARY};line-height:1\">{cnt}</div></div>",
+                        unsafe_allow_html=True)
         st.markdown("---")
 
     tab_companies, tab_contacts, tab_buildings = st.tabs(["🏢 Companies", "👤 Contacts", "🏬 Buildings"])

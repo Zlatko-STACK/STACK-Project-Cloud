@@ -10,11 +10,13 @@ import fee_breakdown
 import calendar
 import datetime
 
+# ── Brand colour palette (module-level) ──
+PRIMARY = "#2c3e50"; ACCENT = "#2ecc71"; MUTED = "#aaaaaa"; TXT = "#2c2c2c"
+
 def render_calendar(projects_df):
     """STACK-branded month calendar for the Dashboard right column."""
     import calendar as _cal
     import datetime as _dt
-    PRIMARY = "#2c3e50"; ACCENT = "#2ecc71"; MUTED = "#aaaaaa"; TXT = "#2c2c2c"
     try:
         from zoneinfo import ZoneInfo as _ZI
         today = _dt.datetime.now(_ZI("Pacific/Auckland")).date()
@@ -108,7 +110,7 @@ INVOICE_LINE_COLUMNS = ["Line ID", "Invoice ID", "Description", "Quantity", "Uni
 RESOURCE_ALLOC_COLUMNS = ["Alloc ID", "Team member", "Project ID", "Project name", "Week start", "Projected hours", "Last updated"]
 HOLIDAY_COLUMNS = ["Date", "Name"]
 LEAVE_COLUMNS = ["Leave ID", "Team member", "Date", "Type", "Notes"]
-BUILDING_COLUMNS = ["Building ID", "Name", "Address", "Notes", "Created", "Last updated"]
+BUILDING_COLUMNS = ["Building ID", "Name", "Address", "Owner Company ID", "Notes", "Created", "Last updated"]
 TENANCY_COLUMNS = ["Tenancy ID", "Building ID", "Company ID", "Floor", "Sqm", "Notes"]
 LEAVE_TYPES = ["Annual leave", "Sick leave", "Unpaid leave", "Public holiday (personal)", "Other"]
 FIXED_TASK_NAMES = ["Admin", "WIP", "Design Team Meeting", "Red Dot Projects"]
@@ -1925,21 +1927,38 @@ elif page == "Clients":
     if not st.session_state.companies.empty:
         status_counts = st.session_state.companies["Status"].value_counts().reset_index()
         status_counts.columns = ["Status", "Count"]
-        pie = alt.Chart(status_counts).mark_arc(innerRadius=50).encode(
-            theta=alt.Theta("Count:Q"),
-            color=alt.Color("Status:N", scale=alt.Scale(domain=list(CLIENT_STATUS_COLOURS.keys()), range=list(CLIENT_STATUS_COLOURS.values())), legend=alt.Legend(title="Status")),
-            tooltip=[alt.Tooltip("Status:N"), alt.Tooltip("Count:Q")]).properties(width=260, height=260, title="Clients by status")
-        text = alt.Chart(status_counts).mark_text(radius=130, fontSize=12, fontWeight="bold").encode(
-            theta=alt.Theta("Count:Q", stack=True), text=alt.Text("Count:Q"), color=alt.value("#333"), order=alt.Order("Count:Q"))
-        chart = alt.layer(pie, text).resolve_scale(color="independent")
-        col_chart, col_summary, _ = st.columns([1, 1, 2])
-        with col_chart: st.altair_chart(chart, use_container_width=False)
+        total_clients = int(status_counts["Count"].sum())
+        donut = alt.Chart(status_counts).mark_arc(innerRadius=62, cornerRadius=4).encode(
+            theta=alt.Theta("Count:Q", stack=True),
+            color=alt.Color("Status:N",
+                scale=alt.Scale(domain=list(CLIENT_STATUS_COLOURS.keys()), range=list(CLIENT_STATUS_COLOURS.values())),
+                legend=None),
+            tooltip=[alt.Tooltip("Status:N", title="Status"), alt.Tooltip("Count:Q", title="Clients")],
+        ).properties(width=200, height=200)
+        centre = alt.Chart(pd.DataFrame({"n": [total_clients]})).mark_text(
+            fontSize=34, fontWeight="bold", color=PRIMARY, dy=-6,
+        ).encode(text="n:Q")
+        centre_lbl = alt.Chart(pd.DataFrame({"t": ["clients"]})).mark_text(
+            fontSize=11, color="#9aa0a6", dy=16,
+        ).encode(text="t:N")
+        chart = (donut + centre + centre_lbl).configure_view(strokeWidth=0).configure(background="transparent")
+        col_chart, col_summary = st.columns([1, 1.25], gap="large")
+        with col_chart:
+            st.altair_chart(chart, use_container_width=True)
         with col_summary:
-            st.markdown("**Summary**")
-            for s in CLIENT_STATUSES:
+            scards = st.columns(2)
+            for i, s in enumerate(CLIENT_STATUSES):
                 cnt = int(status_counts[status_counts["Status"] == s]["Count"].sum()) if s in status_counts["Status"].values else 0
                 colour = CLIENT_STATUS_COLOURS[s]
-                st.markdown(f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:6px'><div style='width:14px;height:14px;border-radius:50%;background:{colour}'></div><span style='font-size:13px'><strong>{s}</strong>: {cnt}</span></div>", unsafe_allow_html=True)
+                with scards[i % 2]:
+                    st.markdown(
+                        f"<div style=\"background:#ffffff;border:1px solid #ececec;border-left:4px solid {colour};"
+                        f"border-radius:10px;padding:12px 14px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.04)\">"
+                        f"<div style=\"display:flex;align-items:center;gap:7px;margin-bottom:4px\">"
+                        f"<span style=\"width:9px;height:9px;border-radius:50%;background:{colour};display:inline-block\"></span>"
+                        f"<span style=\"font-size:12px;color:#6b7280;font-weight:600;letter-spacing:.02em\">{s}</span></div>"
+                        f"<div style=\"font-size:24px;font-weight:700;color:{PRIMARY};line-height:1\">{cnt}</div></div>",
+                        unsafe_allow_html=True)
         st.markdown("---")
 
     tab_companies, tab_contacts, tab_buildings = st.tabs(["🏢 Companies", "👤 Contacts", "🏬 Buildings"])
@@ -2241,6 +2260,7 @@ elif page == "Clients":
     with tab_buildings:
         st.caption("Group clients by building. A client can occupy multiple floors — each tenancy records the floor and area (m²).")
         company_name_by_id = dict(zip(st.session_state.companies["Company ID"], st.session_state.companies["Name"]))
+        name_to_company_id = dict(zip(st.session_state.companies["Name"], st.session_state.companies["Company ID"]))
         search_b = st.text_input("Search buildings", key="search_buildings")
         bdf = st.session_state.buildings.copy()
         if search_b:
@@ -2254,12 +2274,13 @@ elif page == "Clients":
                 nb_name = st.text_input("Building name", placeholder="e.g. Tower Junction")
                 nb_address = st.text_area("Address", height=80, placeholder="Street, suburb, city")
                 nb_notes = st.text_area("Notes", height=80)
+                nb_owner = st.selectbox("Building owner (optional)", ["(none)"] + company_names, help="Company that owns the building, may differ from the tenant/client.")
                 b1, b2 = st.columns(2)
                 if b1.form_submit_button("Save building", use_container_width=True):
                     if not nb_name and not nb_address:
                         st.warning("Enter at least a building name or address.")
                     else:
-                        new_b = {"Building ID": create_id(), "Name": nb_name or nb_address.splitlines()[0], "Address": nb_address, "Notes": nb_notes, "Created": pd.Timestamp.now().strftime("%Y-%m-%d"), "Last updated": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")}
+                        new_b = {"Building ID": create_id(), "Name": nb_name or nb_address.splitlines()[0], "Address": nb_address, "Owner Company ID": (name_to_company_id.get(nb_owner, "") if nb_owner != "(none)" else ""), "Notes": nb_notes, "Created": pd.Timestamp.now().strftime("%Y-%m-%d"), "Last updated": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")}
                         st.session_state.buildings = pd.concat([st.session_state.buildings, pd.DataFrame([new_b])], ignore_index=True)
                         save_buildings(st.session_state.buildings); st.session_state.active_building_id = new_b["Building ID"]; st.rerun()
                 if b2.form_submit_button("Cancel", use_container_width=True):
@@ -2288,10 +2309,13 @@ elif page == "Clients":
                         eb_name = st.text_input("Building name", value=b["Name"])
                         eb_address = st.text_area("Address", value=b["Address"], height=80)
                         eb_notes = st.text_area("Notes", value=b["Notes"], height=80)
+                        _owner_opts = ["(none)"] + company_names
+                        _cur_owner_name = company_name_by_id.get(b.get("Owner Company ID", ""), "")
+                        eb_owner = st.selectbox("Building owner (optional)", _owner_opts, index=(_owner_opts.index(_cur_owner_name) if _cur_owner_name in _owner_opts else 0), help="Company that owns the building, may differ from the tenant/client.")
                         s1, s2 = st.columns(2)
                         if s1.form_submit_button("Save", use_container_width=True):
                             bidx = st.session_state.buildings[st.session_state.buildings["Building ID"] == act_b].index[0]
-                            for k, v in [("Name", eb_name), ("Address", eb_address), ("Notes", eb_notes), ("Last updated", pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"))]:
+                            for k, v in [("Name", eb_name), ("Address", eb_address), ("Owner Company ID", (name_to_company_id.get(eb_owner, "") if eb_owner != "(none)" else "")), ("Notes", eb_notes), ("Last updated", pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"))]:
                                 st.session_state.buildings.at[bidx, k] = v
                             save_buildings(st.session_state.buildings); st.session_state[f"edit_b_{act_b}"] = False; st.rerun()
                         if s2.form_submit_button("Delete building", use_container_width=True):
@@ -2301,6 +2325,12 @@ elif page == "Clients":
                             save_buildings(st.session_state.buildings); st.session_state.active_building_id = None; st.rerun()
                 elif b["Notes"]:
                     st.info(b["Notes"])
+
+                _owner_name = company_name_by_id.get(b.get("Owner Company ID", ""), "")
+
+                if _owner_name:
+
+                    st.markdown(f"<div style='font-size:13px;color:#555;margin-bottom:6px'>🏢 Owned by <b>{_owner_name}</b></div>", unsafe_allow_html=True)
 
                 mtop1, mtop2 = st.columns(2)
                 mtop1.metric("Clients", bt["Company ID"].nunique())
