@@ -15,26 +15,18 @@ def render_calendar(projects_df):
     import calendar as _cal
     import datetime as _dt
     PRIMARY = "#2c3e50"; ACCENT = "#2ecc71"; MUTED = "#aaaaaa"; TXT = "#2c2c2c"
-    try:
-        from zoneinfo import ZoneInfo as _ZI
-        today = _dt.datetime.now(_ZI("Pacific/Auckland")).date()
-    except Exception:
-        today = _dt.date.today()
+    today = _dt.date.today()
     if "cal_year" not in st.session_state: st.session_state.cal_year = today.year
     if "cal_month" not in st.session_state: st.session_state.cal_month = today.month
     y = st.session_state.cal_year; m = st.session_state.cal_month
     # collect days in this month that have a project start or target-completion
     marked = set()
-    marked_labels = {}
     try:
         for _, _p in projects_df.iterrows():
             for _f in ("Start date", "Target completion"):
                 _v = parse_date(_p.get(_f), None)
                 if _v is not None and _v.year == y and _v.month == m:
                     marked.add(int(_v.day))
-                    _lbl = str(_p.get("Project name", "") or "").strip()
-                    _lbl = (_lbl + " \u2014 " + _f) if _lbl else _f
-                    marked_labels.setdefault(int(_v.day), []).append(_lbl)
     except Exception:
         pass
     # header: prev | Month Year | next
@@ -64,10 +56,7 @@ def render_calendar(projects_df):
                 num = f"<div style='background:{PRIMARY};color:#fff;width:28px;height:28px;line-height:28px;border-radius:50%;margin:0 auto;font-size:13px'>{day}</div>"
             else:
                 num = f"<div style='color:{TXT};width:28px;height:28px;line-height:28px;margin:0 auto;font-size:13px'>{day}</div>"
-            _tip = "; ".join(marked_labels.get(day, [])) if day in marked else ""
-            _tip_attr = (" title=\"" + _tip.replace('"', "&quot;") + "\"") if _tip else ""
-            _cur = "cursor:help;" if _tip else ""
-            cells += f"<td style='padding:4px 0;text-align:center;{_cur}'{_tip_attr}>{num}{dot}</td>"
+            cells += f"<td style='padding:4px 0;text-align:center'>{num}{dot}</td>"
         rows += f"<tr>{cells}</tr>"
     st.markdown(f"<table style='width:100%;border-collapse:collapse'><thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>", unsafe_allow_html=True)
 
