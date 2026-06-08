@@ -1789,7 +1789,7 @@ elif page == "Fee Estimator":
     st.subheader("Fee Estimator")
     # --- In-page estimate selector (replaces the old sidebar list) ---
     _ests = st.session_state.estimates
-    _opts = [("\u2795 New estimate", "new")]
+    _opts = [("\u2014 Select or create an estimate \u2014", None)]
     if not _ests.empty:
         for _, _e in _ests.iterrows():
             _t = estimate_totals(_e["Estimate ID"], st.session_state.estimate_lines, st.session_state.estimate_disb, _e.get("Margin %", "0"), role_rates)
@@ -1799,12 +1799,12 @@ elif page == "Fee Estimator":
             _opts.append((_label, _e["Estimate ID"]))
     _ids = [o[1] for o in _opts]
     _cur = st.session_state.active_estimate_id
-    _cur_idx = _ids.index(_cur) if _cur in _ids else (1 if len(_ids) > 1 else 0)
+    _cur_idx = _ids.index(_cur) if _cur in _ids else 0
     _sc1, _sc2 = st.columns([4, 1])
     _choice = _sc1.selectbox("Estimate", _opts, index=_cur_idx, format_func=lambda o: o[0], label_visibility="collapsed")
     if _sc2.button("\u2795 New", use_container_width=True):
         st.session_state.active_estimate_id = "new"; st.rerun()
-    if _choice[1] != _cur:
+    if _choice[1] != _cur and not (_cur == "new" and _choice[1] is None):
         st.session_state.active_estimate_id = _choice[1]; st.rerun()
     act = st.session_state.active_estimate_id
     if act == "new":
