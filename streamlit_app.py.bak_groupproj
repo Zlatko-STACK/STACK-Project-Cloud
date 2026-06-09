@@ -1533,43 +1533,40 @@ elif page == "Task Tracker":
     st.subheader("Project task tracker")
     if task_df.empty: st.info("No tasks match the filters.")
     else:
-        for _proj_name in task_df["Project name"].fillna("Unassigned project").replace("", "Unassigned project").unique():
-            st.markdown(f"<div style='font-weight:700;font-size:15px;margin:14px 0 6px;padding-bottom:4px;border-bottom:1px solid #e3e1dd;color:#1a1a1a'>📁 {_proj_name}</div>", unsafe_allow_html=True)
-            _proj_tasks = task_df[task_df["Project name"].fillna("Unassigned project").replace("", "Unassigned project") == _proj_name]
-            cols = st.columns(3)
-            for i, (_, task) in enumerate(_proj_tasks.iterrows()):
-                tid = task["Task ID"]; colour = TASK_STATUS_COLOURS.get(task["Status"], "#aaaaaa"); is_exp = st.session_state.expanded_task == tid
-                with cols[i % 3]:
-                    st.markdown(f"<div style='border:1px solid #e3e1dd;border-radius:6px;padding:14px 16px;margin-bottom:6px;background:#ffffff;border-left:4px solid {colour};box-shadow:0 1px 3px rgba(0,0,0,0.04)'><div style='font-weight:700;font-size:14px;margin-bottom:4px;color:#1a1a1a'>{task['Task name']}</div><div style='font-size:11px;color:#6b6b6b;margin-bottom:4px'>📁 {task['Project name']}</div><div style='font-size:11px;color:#6b6b6b;margin-bottom:4px'>👤 {task['Assigned to'] or 'Unassigned'}</div><div style='display:inline-block;padding:2px 10px;border-radius:12px;background:{colour};color:white;font-size:11px;font-weight:600'>{task['Status']}</div>" + (f"<div style='font-size:11px;color:#888;margin-top:8px'>{task['Notes']}</div>" if task["Notes"] else "") + "</div>", unsafe_allow_html=True)
-                    if st.button("▲ Close" if is_exp else "✏️ Edit", key=f"task_toggle_{tid}", use_container_width=True):
-                        st.session_state.expanded_task = None if is_exp else tid; st.rerun()
-                    if is_exp:
-                        with st.form(key=f"edit_task_tile_{tid}"):
-                            et_name = st.text_input("Task name", value=task["Task name"])
-                            et_team = st.selectbox("Team", TASK_TEAMS, index=TASK_TEAMS.index(task["Team"]) if task["Team"] in TASK_TEAMS else 0)
-                            et_assigned = st.multiselect("Assigned to", member_names, default=[m.strip() for m in str(task["Assigned to"]).split(";") if m.strip()])
-                            et_status = st.selectbox("Status", TASK_STATUSES, index=TASK_STATUSES.index(task["Status"]) if task["Status"] in TASK_STATUSES else 0)
-                            et_notes = st.text_area("Notes", value=task["Notes"], height=80)
-                            sv = st.form_submit_button("Save", use_container_width=True); dl = st.form_submit_button("Delete", use_container_width=True)
-                            if sv:
-                                st.session_state.tasks = add_or_update_task({"Task ID": tid, "Project ID": task["Project ID"], "Project name": task["Project name"], "Task name": et_name, "Team": et_team, "Assigned to": "; ".join(et_assigned), "Status": et_status, "Notes": et_notes}, st.session_state.tasks)
-                                save_tasks(st.session_state.tasks); st.session_state.expanded_task = None; st.rerun()
-                            if dl:
-                                st.session_state.tasks = st.session_state.tasks[st.session_state.tasks["Task ID"] != tid]
-                                save_tasks(st.session_state.tasks); st.session_state.expanded_task = None; st.rerun()
-                        _bh = task.get("Budget hours", "")
-                        if str(_bh).strip() not in ("", "0", "0.0"):
-                            _hs = task_hours_summary(tid, _bh, st.session_state.timesheets)
-                            st.markdown(f"**Hours:** {_hs['logged']:.1f} of {_hs['budget']:.1f} used  ·  **{_hs['remaining']:.1f} remaining**")
-                            st.progress(_hs["pct"])
-                            with st.form(key=f"log_hours_{tid}"):
-                                _lh1, _lh2, _lh3 = st.columns([2, 2, 1])
-                                _lh_member = _lh1.selectbox("Logged by", member_names if member_names else [""], key=f"lh_member_{tid}")
-                                _lh_date = _lh2.date_input("Date", key=f"lh_date_{tid}")
-                                _lh_hours = _lh3.number_input("Hours", min_value=0.0, step=0.5, key=f"lh_hours_{tid}")
-                                if st.form_submit_button("Log hours", use_container_width=True) and _lh_hours > 0:
-                                    st.session_state.timesheets = add_timesheet_entry({"Project ID": task.get("Project ID", ""), "Project name": task.get("Project name", ""), "Phase": task.get("Phase", ""), "Team member": _lh_member, "Role": task.get("Role", ""), "Date": _lh_date.strftime("%Y-%m-%d"), "Hours": str(_lh_hours), "Rate": "", "Notes": f"Logged against task: {task.get('Task name', '')}", "Invoiced": "False", "Task ID": tid}, st.session_state.timesheets)
-                                    save_timesheets(st.session_state.timesheets); st.rerun()
+        cols = st.columns(3)
+        for i, (_, task) in enumerate(task_df.iterrows()):
+            tid = task["Task ID"]; colour = TASK_STATUS_COLOURS.get(task["Status"], "#aaaaaa"); is_exp = st.session_state.expanded_task == tid
+            with cols[i % 3]:
+                st.markdown(f"<div style='border:1px solid #e3e1dd;border-radius:6px;padding:14px 16px;margin-bottom:6px;background:#ffffff;border-left:4px solid {colour};box-shadow:0 1px 3px rgba(0,0,0,0.04)'><div style='font-weight:700;font-size:14px;margin-bottom:4px;color:#1a1a1a'>{task['Task name']}</div><div style='font-size:11px;color:#6b6b6b;margin-bottom:4px'>📁 {task['Project name']}</div><div style='font-size:11px;color:#6b6b6b;margin-bottom:4px'>👤 {task['Assigned to'] or 'Unassigned'}</div><div style='display:inline-block;padding:2px 10px;border-radius:12px;background:{colour};color:white;font-size:11px;font-weight:600'>{task['Status']}</div>" + (f"<div style='font-size:11px;color:#888;margin-top:8px'>{task['Notes']}</div>" if task["Notes"] else "") + "</div>", unsafe_allow_html=True)
+                if st.button("▲ Close" if is_exp else "✏️ Edit", key=f"task_toggle_{tid}", use_container_width=True):
+                    st.session_state.expanded_task = None if is_exp else tid; st.rerun()
+                if is_exp:
+                    with st.form(key=f"edit_task_tile_{tid}"):
+                        et_name = st.text_input("Task name", value=task["Task name"])
+                        et_team = st.selectbox("Team", TASK_TEAMS, index=TASK_TEAMS.index(task["Team"]) if task["Team"] in TASK_TEAMS else 0)
+                        et_assigned = st.multiselect("Assigned to", member_names, default=[m.strip() for m in str(task["Assigned to"]).split(";") if m.strip()])
+                        et_status = st.selectbox("Status", TASK_STATUSES, index=TASK_STATUSES.index(task["Status"]) if task["Status"] in TASK_STATUSES else 0)
+                        et_notes = st.text_area("Notes", value=task["Notes"], height=80)
+                        sv = st.form_submit_button("Save", use_container_width=True); dl = st.form_submit_button("Delete", use_container_width=True)
+                        if sv:
+                            st.session_state.tasks = add_or_update_task({"Task ID": tid, "Project ID": task["Project ID"], "Project name": task["Project name"], "Task name": et_name, "Team": et_team, "Assigned to": "; ".join(et_assigned), "Status": et_status, "Notes": et_notes}, st.session_state.tasks)
+                            save_tasks(st.session_state.tasks); st.session_state.expanded_task = None; st.rerun()
+                        if dl:
+                            st.session_state.tasks = st.session_state.tasks[st.session_state.tasks["Task ID"] != tid]
+                            save_tasks(st.session_state.tasks); st.session_state.expanded_task = None; st.rerun()
+                    _bh = task.get("Budget hours", "")
+                    if str(_bh).strip() not in ("", "0", "0.0"):
+                        _hs = task_hours_summary(tid, _bh, st.session_state.timesheets)
+                        st.markdown(f"**Hours:** {_hs['logged']:.1f} of {_hs['budget']:.1f} used  ·  **{_hs['remaining']:.1f} remaining**")
+                        st.progress(_hs["pct"])
+                        with st.form(key=f"log_hours_{tid}"):
+                            _lh1, _lh2, _lh3 = st.columns([2, 2, 1])
+                            _lh_member = _lh1.selectbox("Logged by", member_names if member_names else [""], key=f"lh_member_{tid}")
+                            _lh_date = _lh2.date_input("Date", key=f"lh_date_{tid}")
+                            _lh_hours = _lh3.number_input("Hours", min_value=0.0, step=0.5, key=f"lh_hours_{tid}")
+                            if st.form_submit_button("Log hours", use_container_width=True) and _lh_hours > 0:
+                                st.session_state.timesheets = add_timesheet_entry({"Project ID": task.get("Project ID", ""), "Project name": task.get("Project name", ""), "Phase": task.get("Phase", ""), "Team member": _lh_member, "Role": task.get("Role", ""), "Date": _lh_date.strftime("%Y-%m-%d"), "Hours": str(_lh_hours), "Rate": "", "Notes": f"Logged against task: {task.get('Task name', '')}", "Invoiced": "False", "Task ID": tid}, st.session_state.timesheets)
+                                save_timesheets(st.session_state.timesheets); st.rerun()
     st.markdown("---"); st.subheader("Add a new task")
     with st.form("new_task_form"):
         tp = st.selectbox("Project", [""] + st.session_state.projects["Project name"].dropna().unique().tolist())
