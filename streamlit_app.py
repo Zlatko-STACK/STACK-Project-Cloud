@@ -1210,7 +1210,7 @@ with st.sidebar:
         search_query = st.text_input("Search")
         st.markdown("---"); st.write("**Insights**"); n = len(st.session_state.projects)
         st.metric("Total projects", n)
-        st.metric("Total budget", format_budget(st.session_state.projects["Budget"].apply(parse_budget).sum()))
+        st.metric("Active projects", int((st.session_state.projects["Status"] != "Complete").sum()))
         st.metric("Avg compliance", f"{int(st.session_state.projects['Compliance checklist'].apply(compliance_progress).mean() if n else 0)}%")
         for s in STATUSES: st.write(f"- {s}: {st.session_state.projects['Status'].value_counts().to_dict().get(s, 0)}")
     elif page == "Projects":
