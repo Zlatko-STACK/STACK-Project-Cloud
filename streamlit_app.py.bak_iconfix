@@ -1134,9 +1134,6 @@ hr { border-color: #d8d6d2 !important; }
 .stTextInput input, .stNumberInput input, .stDateInput input,
 .stSelectbox div[data-baseweb="select"] > div, .stMultiSelect div[data-baseweb="select"] > div,
 .stTextArea textarea { border-radius: 4px !important; }
-/* ICON-FONT-FALLBACK-V1: fallback when Material Symbols icon webfont fails to load (prevents raw 'arrow_drop_down'/'expand_more' text in expanders & popovers) */
-[data-testid="stIconMaterial"]{ font-size:0 !important; line-height:1 !important; display:inline-flex !important; align-items:center; justify-content:center; vertical-align:middle; }
-[data-testid="stIconMaterial"]::after{ content:"▾" !important; font-size:1.1rem !important; color:inherit; font-family:inherit !important; }
 </style>
 """, unsafe_allow_html=True)
 
