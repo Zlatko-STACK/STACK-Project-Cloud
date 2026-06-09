@@ -1,2 +1,2 @@
-Estimate ID,Estimate name,Client,Company ID,Project ID,Project name,Margin %,Notes,Created,Last updated
-669d8eb8,test,test,,,,15.0,,2026-06-04,2026-06-04 22:33
+Estimate ID,Estimate name,Client,Company ID,Project ID,Project name,Margin %,Status,Notes,Created,Last updated
+669d8eb8,test,test,,25052,Project Orange,15.0,Approved,,2026-06-04,2026-06-09 01:28

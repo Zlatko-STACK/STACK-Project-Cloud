@@ -98,9 +98,9 @@ COLUMNS = ["Project ID", "Project name", "Client", "Company ID", "Location", "Pr
            "Start date", "Target completion", "Stage", "Status", "Budget", "Fee", "Phase fees",
            "Weekly hours allocated", "Member hours allocation", "Phase schedule", "Milestones",
            "Team members", "Compliance checklist", "Notes", "Last updated"]
-TASK_COLUMNS = ["Task ID", "Project ID", "Project name", "Task name", "Team", "Assigned to", "Status", "Notes", "Last updated"]
-TIMESHEET_COLUMNS = ["Entry ID", "Project ID", "Project name", "Phase", "Team member", "Role", "Date", "Hours", "Rate", "Notes", "Invoiced"]
-ESTIMATE_COLUMNS = ["Estimate ID", "Estimate name", "Client", "Company ID", "Project ID", "Project name", "Margin %", "Notes", "Created", "Last updated"]
+TASK_COLUMNS = ["Task ID", "Project ID", "Project name", "Task name", "Team", "Assigned to", "Status", "Notes", "Last updated", "Budget hours", "Source line ID", "Phase", "Role"]
+TIMESHEET_COLUMNS = ["Entry ID", "Project ID", "Project name", "Phase", "Team member", "Role", "Date", "Hours", "Rate", "Notes", "Invoiced", "Task ID"]
+ESTIMATE_COLUMNS = ["Estimate ID", "Estimate name", "Client", "Company ID", "Project ID", "Project name", "Margin %", "Status", "Notes", "Created", "Last updated"]
 ESTIMATE_LINE_COLUMNS = ["Line ID", "Estimate ID", "Phase", "Role", "Hours", "Rate", "Task", "Active"]
 ESTIMATE_DISB_COLUMNS = ["Disb ID", "Estimate ID", "Description", "Type", "Value"]
 COMPANY_COLUMNS = ["Company ID", "Name", "Status", "Industry", "Website", "Phone", "Billing address", "Postal address", "Referral source", "Notes", "Tags", "Custom fields", "Created", "Last updated"]
@@ -587,6 +587,13 @@ def project_fee_consumed(project_id, timesheets_df, role_rates):
 
 def project_hours_logged(project_id, timesheets_df):
     return round(sum(parse_budget(e["Hours"]) for _, e in timesheets_df[timesheets_df["Project ID"] == project_id].iterrows()), 1)
+def task_hours_logged(task_id, timesheets_df):
+    if not task_id or "Task ID" not in timesheets_df.columns: return 0.0
+    return round(sum(parse_budget(e["Hours"]) for _, e in timesheets_df[timesheets_df["Task ID"].astype(str) == str(task_id)].iterrows()), 1)
+def task_hours_summary(task_id, budget_hours, timesheets_df):
+    budget = parse_budget(budget_hours); logged = task_hours_logged(task_id, timesheets_df)
+    remaining = round(budget - logged, 1); pct = (logged / budget) if budget > 0 else 0.0
+    return {"budget": round(budget, 1), "logged": logged, "remaining": remaining, "pct": min(max(pct, 0.0), 1.0)}
 
 def generate_pdf_html(est_row, lines_df, disb_df, totals, role_rates):
     est_id = est_row["Estimate ID"]
@@ -1547,6 +1554,19 @@ elif page == "Task Tracker":
                         if dl:
                             st.session_state.tasks = st.session_state.tasks[st.session_state.tasks["Task ID"] != tid]
                             save_tasks(st.session_state.tasks); st.session_state.expanded_task = None; st.rerun()
+                    _bh = task.get("Budget hours", "")
+                    if str(_bh).strip() not in ("", "0", "0.0"):
+                        _hs = task_hours_summary(tid, _bh, st.session_state.timesheets)
+                        st.markdown(f"**Hours:** {_hs['logged']:.1f} of {_hs['budget']:.1f} used  ·  **{_hs['remaining']:.1f} remaining**")
+                        st.progress(_hs["pct"])
+                        with st.form(key=f"log_hours_{tid}"):
+                            _lh1, _lh2, _lh3 = st.columns([2, 2, 1])
+                            _lh_member = _lh1.selectbox("Logged by", member_names if member_names else [""], key=f"lh_member_{tid}")
+                            _lh_date = _lh2.date_input("Date", key=f"lh_date_{tid}")
+                            _lh_hours = _lh3.number_input("Hours", min_value=0.0, step=0.5, key=f"lh_hours_{tid}")
+                            if st.form_submit_button("Log hours", use_container_width=True) and _lh_hours > 0:
+                                st.session_state.timesheets = add_timesheet_entry({"Project ID": task.get("Project ID", ""), "Project name": task.get("Project name", ""), "Phase": task.get("Phase", ""), "Team member": _lh_member, "Role": task.get("Role", ""), "Date": _lh_date.strftime("%Y-%m-%d"), "Hours": str(_lh_hours), "Rate": "", "Notes": f"Logged against task: {task.get('Task name', '')}", "Invoiced": "False", "Task ID": tid}, st.session_state.timesheets)
+                                save_timesheets(st.session_state.timesheets); st.rerun()
     st.markdown("---"); st.subheader("Add a new task")
     with st.form("new_task_form"):
         tp = st.selectbox("Project", [""] + st.session_state.projects["Project name"].dropna().unique().tolist())
@@ -1834,7 +1854,7 @@ elif page == "Fee Estimator":
                 else:
                     proj_row = st.session_state.projects[st.session_state.projects["Project name"] == ne_proj]
                     comp_row3 = st.session_state.companies[st.session_state.companies["Name"] == ne_comp]
-                    new_est = {"Estimate ID": create_id(), "Estimate name": ne_name, "Client": ne_comp if ne_comp != "(none)" else ne_client, "Company ID": comp_row3.iloc[0]["Company ID"] if not comp_row3.empty else "", "Project ID": proj_row.iloc[0]["Project ID"] if not proj_row.empty else "", "Project name": ne_proj if ne_proj != "(none)" else "", "Margin %": str(ne_margin), "Notes": ne_notes, "Created": pd.Timestamp.now().strftime("%Y-%m-%d"), "Last updated": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")}
+                    new_est = {"Estimate ID": create_id(), "Estimate name": ne_name, "Client": ne_comp if ne_comp != "(none)" else ne_client, "Company ID": comp_row3.iloc[0]["Company ID"] if not comp_row3.empty else "", "Project ID": proj_row.iloc[0]["Project ID"] if not proj_row.empty else "", "Project name": ne_proj if ne_proj != "(none)" else "", "Margin %": str(ne_margin), "Status": "Draft", "Notes": ne_notes, "Created": pd.Timestamp.now().strftime("%Y-%m-%d"), "Last updated": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")}
                     st.session_state.estimates = pd.concat([st.session_state.estimates, pd.DataFrame([new_est])], ignore_index=True)
                     save_estimates(st.session_state.estimates); st.session_state.active_estimate_id = new_est["Estimate ID"]; st.rerun()
         if st.button("✕ Cancel", key="cancel_new_est"): st.session_state.active_estimate_id = None; st.rerun()
@@ -1853,6 +1873,8 @@ elif page == "Fee Estimator":
                     ee_name = st.text_input("Estimate name", value=est["Estimate name"]); ee_client = st.text_input("Client", value=est["Client"])
                     ee_margin = st.number_input("Margin %", min_value=0.0, max_value=100.0, step=0.5, value=parse_budget(est.get("Margin %", "15")))
                     ee_notes = st.text_area("Notes", value=est.get("Notes", ""), height=80)
+                    _cur_status = est.get("Status", "Draft") or "Draft"
+                    ee_status = st.selectbox("Status", ["Draft", "Approved"], index=["Draft", "Approved"].index(_cur_status) if _cur_status in ["Draft", "Approved"] else 0)
                     proj_opts2 = ["(none)"] + st.session_state.projects["Project name"].dropna().unique().tolist()
                     curr_proj = est.get("Project name", "")
                     ee_proj = st.selectbox("Linked project", proj_opts2, index=proj_opts2.index(curr_proj) if curr_proj in proj_opts2 else 0)
@@ -1860,7 +1882,7 @@ elif page == "Fee Estimator":
                     if s1.form_submit_button("Save", use_container_width=True):
                         eidx = st.session_state.estimates[st.session_state.estimates["Estimate ID"] == act].index[0]
                         proj_row2 = st.session_state.projects[st.session_state.projects["Project name"] == ee_proj]
-                        for k, v in [("Estimate name", ee_name), ("Client", ee_client), ("Margin %", str(ee_margin)), ("Notes", ee_notes), ("Project name", ee_proj if ee_proj != "(none)" else ""), ("Project ID", proj_row2.iloc[0]["Project ID"] if not proj_row2.empty else ""), ("Last updated", pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"))]:
+                        for k, v in [("Estimate name", ee_name), ("Client", ee_client), ("Margin %", str(ee_margin)), ("Status", ee_status), ("Notes", ee_notes), ("Project name", ee_proj if ee_proj != "(none)" else ""), ("Project ID", proj_row2.iloc[0]["Project ID"] if not proj_row2.empty else ""), ("Last updated", pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"))]:
                             st.session_state.estimates.at[eidx, k] = v
                         save_estimates(st.session_state.estimates); st.session_state[f"edit_est_{act}"] = False; st.rerun()
                     if s2.form_submit_button("Delete estimate", use_container_width=True):
@@ -1893,7 +1915,28 @@ elif page == "Fee Estimator":
             has_proj = bool(est.get("Project ID"))
             has_client = bool(est.get("Company ID"))
             if has_proj or has_client:
-                if st.button("📤 Push total fee to linked project & client", use_container_width=True):
+                _est_status = est.get("Status", "Draft") or "Draft"
+            _badge_col = "#2ecc71" if _est_status == "Approved" else "#f39c12"
+            st.markdown(f"<div style='margin:6px 0'>Estimate status: <span style='background:{_badge_col};color:white;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600'>{_est_status}</span></div>", unsafe_allow_html=True)
+            if _est_status != "Approved":
+                st.caption("Set status to 'Approved' in Edit details to push sub-tasks into resourcing.")
+            if _est_status == "Approved" and has_proj:
+                if st.button("✅ Approve & push sub-tasks to resourcing", key=f"push_tasks_{act}", use_container_width=True):
+                    _proj_id = est.get("Project ID", ""); _proj_name = est.get("Project name", "")
+                    _elines = st.session_state.estimate_lines[(st.session_state.estimate_lines["Estimate ID"] == act) & (st.session_state.estimate_lines["Active"].astype(str).str.lower() != "false")]
+                    _pushed = 0
+                    for _, _ln in _elines.iterrows():
+                        _lid = _ln.get("Line ID", "")
+                        _tname = (_ln.get("Task", "") or _ln.get("Role", "") or "Sub-task").strip()
+                        _existing = st.session_state.tasks[st.session_state.tasks["Source line ID"].astype(str) == str(_lid)] if "Source line ID" in st.session_state.tasks.columns else st.session_state.tasks.iloc[0:0]
+                        _tid = _existing.iloc[0]["Task ID"] if not _existing.empty else ""
+                        _prev_assigned = _existing.iloc[0]["Assigned to"] if not _existing.empty else ""
+                        _prev_status = _existing.iloc[0]["Status"] if not _existing.empty else "Not started"
+                        st.session_state.tasks = add_or_update_task({"Task ID": _tid, "Project ID": _proj_id, "Project name": _proj_name, "Task name": _tname, "Team": "Design", "Assigned to": _prev_assigned, "Status": _prev_status if _prev_status else "Not started", "Notes": f"From estimate '{est.get('Estimate name','')}'", "Budget hours": str(parse_budget(_ln.get("Hours", 0))), "Source line ID": str(_lid), "Phase": _ln.get("Phase", ""), "Role": _ln.get("Role", "")}, st.session_state.tasks)
+                        _pushed += 1
+                    save_tasks(st.session_state.tasks)
+                    st.success(f"Pushed {_pushed} sub-task(s) to the Task Tracker. Existing assignments were preserved.")
+            if st.button("📤 Push total fee to linked project & client", use_container_width=True):
                     fee_str = str(totals["total"]); pushed = []
                     if has_proj:
                         pidx2 = st.session_state.projects[st.session_state.projects["Project ID"] == est["Project ID"]].index
