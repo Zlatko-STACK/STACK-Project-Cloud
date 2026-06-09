@@ -1915,7 +1915,7 @@ elif page == "Reporting":
         tot_nonbill = round(rep_df["Non-Bill Hrs"].sum(), 2) if not rep_df.empty else 0.0
         tot_all = round(tot_bill + tot_nonbill, 2)
         _title = f"{sel_member.upper()} \u2014 TIME REPORT {sel_month_label.upper()}"
-        st.markdown(f"<div style='background:#1a1a1a;color:#fff;border-left:6px solid #f39c12;padding:14px;border-radius:6px 6px 0 0;text-align:center;font-family:Inter,sans-serif'><div style='font-size:20px;font-weight:700'>{_title}</div><div style='font-size:13px;color:#f39c12;margin-top:4px;font-weight:600'>Hours by Job</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='background:#1f4e79;color:#fff;padding:14px;border-radius:6px 6px 0 0;text-align:center;font-family:Inter,sans-serif'><div style='font-size:20px;font-weight:700'>{_title}</div><div style='font-size:13px;opacity:.85;margin-top:4px'>Hours by Job</div></div>", unsafe_allow_html=True)
         if rep_df.empty:
             st.info("No hours logged for this person in the selected month.")
         else:
@@ -1933,26 +1933,6 @@ elif page == "Reporting":
                 out.to_excel(xl, index=False, sheet_name="Hours by Job", startrow=2)
                 ws = xl.sheets["Hours by Job"]
                 ws.cell(row=1, column=1, value=_title)
-            from openpyxl.styles import PatternFill, Font, Alignment
-            _charcoal = PatternFill('solid', fgColor='1A1A1A')
-            _orange   = PatternFill('solid', fgColor='F39C12')
-            _ncol = len(out.columns)
-            # Title band (row 1) - charcoal bg, white bold text
-            tc = ws.cell(row=1, column=1)
-            tc.fill = _charcoal; tc.font = Font(color='FFFFFF', bold=True, size=13)
-            tc.alignment = Alignment(horizontal='center')
-            ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=_ncol)
-            # Column header row (row 3 because startrow=2) - orange bg, dark text
-            for _c in range(1, _ncol+1):
-                hc = ws.cell(row=3, column=_c)
-                hc.fill = _orange; hc.font = Font(color='1A1A1A', bold=True)
-            # TOTAL row (last data row) - charcoal bg, white bold
-            _last = ws.max_row
-            for _c in range(1, _ncol+1):
-                fc = ws.cell(row=_last, column=_c)
-                fc.fill = _charcoal; fc.font = Font(color='FFFFFF', bold=True)
-            for _c in range(1, _ncol+1):
-                ws.column_dimensions[ws.cell(row=3, column=_c).column_letter].width = [14,26,30,13,13,13][_c-1] if _c<=6 else 14
             buf.seek(0)
             return buf.getvalue()
         def _build_pdf():
@@ -1961,7 +1941,7 @@ elif page == "Reporting":
             from fpdf import FPDF
             pdf = FPDF(orientation="L", unit="mm", format="A4")
             pdf.add_page()
-            pdf.set_fill_color(26, 26, 26); pdf.set_text_color(255, 255, 255)
+            pdf.set_fill_color(31, 78, 121); pdf.set_text_color(255, 255, 255)
             pdf.set_font("Helvetica", "B", 14)
             pdf.cell(0, 10, _sf(_title), ln=1, align="C", fill=True)
             pdf.set_font("Helvetica", "", 10)
@@ -1970,7 +1950,7 @@ elif page == "Reporting":
             headers = ["Job Code", "Client", "Job Name", "Billable Hrs", "Non-Bill Hrs", "Total Hours"]
             widths = [25, 60, 80, 35, 35, 35]
             pdf.set_text_color(0, 0, 0); pdf.set_font("Helvetica", "B", 9)
-            pdf.set_fill_color(243, 156, 18); pdf.set_text_color(26, 26, 26)
+            pdf.set_fill_color(46, 117, 182); pdf.set_text_color(255, 255, 255)
             for h, w in zip(headers, widths):
                 pdf.cell(w, 8, _sf(h), border=1, align="C", fill=True)
             pdf.ln()
@@ -1981,7 +1961,7 @@ elif page == "Reporting":
                 for c, w, a in zip(cells, widths, aligns):
                     pdf.cell(w, 7, _sf(c), border=1, align=a)
                 pdf.ln()
-            pdf.set_font("Helvetica", "B", 9); pdf.set_fill_color(26, 26, 26); pdf.set_text_color(255, 255, 255)
+            pdf.set_font("Helvetica", "B", 9); pdf.set_fill_color(31, 78, 121); pdf.set_text_color(255, 255, 255)
             tot_cells = ["TOTAL", "", "", f"{tot_bill:.2f}", f"{tot_nonbill:.2f}", f"{tot_all:.2f}"]
             for c, w, a in zip(tot_cells, widths, ["L", "L", "L", "R", "R", "R"]):
                 pdf.cell(w, 8, _sf(c), border=1, align=a, fill=True)
