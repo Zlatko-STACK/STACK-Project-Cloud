@@ -796,96 +796,6 @@ def show_task_popup(proj_name):
                 save_tasks(st.session_state.tasks); st.rerun()
 
 
-
-# ===== Sheet / Drawing register (Documentation stage) =====
-SHEETS_FILE = Path(__file__).parent / "sheets.csv"
-SHEET_COLUMNS = ["Sheet ID", "Project ID", "Project name", "Sheet number", "Title", "Discipline", "Phase", "Assigned to", "Status", "Last updated"]
-SHEET_DISCIPLINES = ["Architectural", "Interior", "Structural", "Services", "Civil", "General"]
-
-
-def load_sheets():
-    return load_df(SHEETS_FILE, SHEET_COLUMNS)
-
-
-def save_sheets(df):
-    df.to_csv(SHEETS_FILE, index=False)
-
-
-@st.dialog("Drawing / Sheet Register", width="large")
-def show_sheet_popup(proj_name, proj_id):
-    member_names = st.session_state.members_df["Team member"].tolist()
-    sheets = load_sheets()
-    proj_sheets = sheets[sheets["Project name"] == proj_name].copy()
-    st.markdown(f"#### Documentation \u2014 {proj_name}")
-    st.caption("Allocate sheets and drawings to team members, grouped by project stage.")
-    if proj_sheets.empty:
-        st.info("No sheets registered yet. Add the first one below.")
-    else:
-        present = list(proj_sheets["Phase"].unique())
-        ordered_phases = [s for s in STAGES if s in present] + [p for p in present if p not in STAGES]
-        has_unphased = (proj_sheets["Phase"].str.strip() == "").any()
-        groups = [(p, proj_sheets[proj_sheets["Phase"] == p]) for p in ordered_phases if str(p).strip() != ""]
-        if has_unphased:
-            groups.append(("Unphased", proj_sheets[proj_sheets["Phase"].str.strip() == ""]))
-        for phase_name, phase_sheets in groups:
-            done = (phase_sheets["Status"] == "Completed").sum()
-            st.markdown(f"<div style='margin-top:14px;font-size:15px;color:#2c3e50;border-bottom:2px solid #2c3e50;padding-bottom:4px'><strong>{phase_name}</strong> &nbsp;<span style='font-weight:400;font-size:12px;color:#888'>({done}/{len(phase_sheets)} done)</span></div>", unsafe_allow_html=True)
-            pkey = phase_name.replace(" ", "_")
-            bc1, bc2 = st.columns([4, 1])
-            with bc1:
-                bulk = st.multiselect("Assign all sheets in this stage to", member_names, key=f"bulk_sheet_{proj_id}_{pkey}", label_visibility="collapsed", placeholder=f"Assign all {len(phase_sheets)} sheet(s) in '{phase_name}' to\u2026")
-            with bc2:
-                if st.button("Apply", key=f"bulk_sheet_apply_{proj_id}_{pkey}", use_container_width=True, disabled=not bulk):
-                    val = "; ".join(bulk)
-                    for _sid in phase_sheets["Sheet ID"].tolist():
-                        _ix = sheets[sheets["Sheet ID"] == _sid].index
-                        if len(_ix):
-                            sheets.at[_ix[0], "Assigned to"] = val
-                            sheets.at[_ix[0], "Last updated"] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
-                    save_sheets(sheets); st.rerun()
-            for _, sh in phase_sheets.iterrows():
-                sid = sh["Sheet ID"]
-                colour = TASK_STATUS_COLOURS.get(sh["Status"], "#aaaaaa")
-                c1, c2, c3 = st.columns([3, 3, 2])
-                with c1:
-                    num = (sh["Sheet number"] + " ") if str(sh["Sheet number"]).strip() else ""
-                    st.markdown(f"<span style='display:inline-block;width:9px;height:9px;border-radius:50%;background:{colour};margin-right:6px'></span>**{num}{sh['Title']}**", unsafe_allow_html=True)
-                    if str(sh.get("Discipline", "")).strip(): st.caption(sh["Discipline"])
-                with c2:
-                    assigned = [m.strip() for m in str(sh["Assigned to"]).split(";") if m.strip()]
-                    assigned = [m for m in assigned if m in member_names]
-                    new_assigned = st.multiselect("Assignee", member_names, default=assigned, key=f"sheet_assign_{sid}", label_visibility="collapsed", placeholder="Assignee")
-                with c3:
-                    new_status = st.selectbox("Status", TASK_STATUSES, index=TASK_STATUSES.index(sh["Status"]) if sh["Status"] in TASK_STATUSES else 0, key=f"sheet_status_{sid}", label_visibility="collapsed")
-                if new_assigned != assigned or new_status != sh["Status"]:
-                    idx = sheets[sheets["Sheet ID"] == sid].index[0]
-                    sheets.at[idx, "Assigned to"] = "; ".join(new_assigned)
-                    sheets.at[idx, "Status"] = new_status
-                    sheets.at[idx, "Last updated"] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
-                    save_sheets(sheets); st.rerun()
-    st.divider()
-    st.markdown("### + Add a sheet / drawing")
-    with st.form(key=f"new_sheet_{proj_id}"):
-        sc1, sc2 = st.columns([1, 2])
-        with sc1:
-            ns_num = st.text_input("Sheet number", placeholder="e.g. A-101")
-        with sc2:
-            ns_title = st.text_input("Title")
-        sc3, sc4, sc5 = st.columns(3)
-        with sc3:
-            ns_disc = st.selectbox("Discipline", SHEET_DISCIPLINES)
-        with sc4:
-            ns_phase = st.selectbox("Phase", STAGES)
-        with sc5:
-            ns_assign = st.multiselect("Assigned to", member_names)
-        if st.form_submit_button("Add sheet", use_container_width=True):
-            if not ns_title.strip():
-                st.warning("Please enter a sheet title.")
-            else:
-                new_row = {"Sheet ID": create_id(), "Project ID": proj_id, "Project name": proj_name, "Sheet number": ns_num.strip(), "Title": ns_title.strip(), "Discipline": ns_disc, "Phase": ns_phase, "Assigned to": "; ".join(ns_assign), "Status": "Not started", "Last updated": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")}
-                sheets = pd.concat([sheets, pd.DataFrame([new_row])], ignore_index=True)
-                save_sheets(sheets); st.rerun()
-
 @st.dialog("Log Hours", width="large")
 def show_log_hours_popup(proj_name, proj_id):
     st.subheader(f"Log hours — {proj_name}")
@@ -1102,7 +1012,7 @@ def build_traffic_light_cards(df):
                 f"<div style='display:flex;flex-wrap:wrap;gap:8px'>{dots}</div>{fee_bar}</div>")
         with cols[i % 3]:
             st.markdown(html, unsafe_allow_html=True)
-            b1, b2, b3, b4 = st.columns(4)
+            b1, b2, b3 = st.columns(3)
             with b1:
                 if st.button("▲ Close" if st.session_state.expanded_card == proj else "✏️ Stage", key=f"toggle_{proj}", use_container_width=True):
                     st.session_state.expanded_card = None if st.session_state.expanded_card == proj else proj; st.rerun()
@@ -1110,8 +1020,6 @@ def build_traffic_light_cards(df):
                 if st.button("📋 Tasks", key=f"tasks_{proj}", use_container_width=True): show_task_popup(proj)
             with b3:
                 if st.button("⏱ Hours", key=f"hours_{proj}", use_container_width=True): show_log_hours_popup(proj, proj_id)
-        with b4:
-            if st.button("📐 Sheets", key=f"sheets_{proj}", use_container_width=True): show_sheet_popup(proj, proj_id)
             if st.session_state.expanded_card == proj:
                 pidx = st.session_state.projects[st.session_state.projects["Project name"] == proj].index[0]
                 cur = st.session_state.projects.loc[pidx].to_dict()
@@ -1520,10 +1428,9 @@ elif page == "Projects":
         d1.markdown(f"**Start:** {prow.get('Start date') or '—'}")
         d2.markdown(f"**Target:** {prow.get('Target completion') or '—'}")
         d3.markdown(f"**Project manager:** {prow.get('Project manager') or '—'}")
-        a1, a2, a3 = st.columns(3)
+        a1, a2 = st.columns(2)
         if a1.button("📋 Tasks", use_container_width=True, key="pv_tasks"): show_task_popup(pv)
         if a2.button("⏱ Log / view hours", use_container_width=True, key="pv_hours"): show_log_hours_popup(pv, pid)
-        if a3.button("📐 Sheets / drawings", use_container_width=True, key="pv_sheets"): show_sheet_popup(pv, pid)
 
         st.markdown("---")
         cl, cr = st.columns(2)

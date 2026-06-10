@@ -664,6 +664,30 @@ def generate_pdf_html(est_row, lines_df, disb_df, totals, role_rates):
     dr = "".join(f"<tr><td style='padding:4px 8px'>{d['Description']}</td><td>{d['Type']}</td><td style='text-align:right;padding:4px 8px'>{'${:,.2f}'.format(parse_budget(d['Value'])) if d['Type']=='Fixed ($)' else d['Value']+'%'}</td></tr>" for _, d in disbs.iterrows())
     mp = parse_budget(est_row.get("Margin %", "0"))
     return f"""<html><head><style>body{{font-family:Arial,sans-serif;font-size:12px;color:#222;margin:40px}}h1,h2{{color:#2c3e50}}h2{{border-bottom:1px solid #ccc;padding-bottom:4px}}table{{border-collapse:collapse;width:100%;margin-bottom:20px}}td,th{{border:1px solid #ddd}}.summary td{{padding:6px 12px}}.total{{font-size:16px;font-weight:700;color:#2c3e50}}
+/* --- Fluid Page dropdown (STACK) --- */
+[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div {
+  border-radius: 12px !important;
+  border: 1px solid #3d3d3d !important;
+  padding: 2px 4px !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.03), 0 1px 2px rgba(0,0,0,0.25) !important;
+  transition: background-color .2s ease, border-color .2s ease, box-shadow .2s ease, transform .15s ease !important;
+}
+[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div:hover {
+  background-color: #353535 !important;
+  border-color: #f39c12 !important;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.35), 0 0 0 1px rgba(243,156,18,0.35) !important;
+  transform: translateY(-1px) !important;
+}
+[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"]:focus-within > div {
+  border-color: #f39c12 !important;
+  box-shadow: 0 0 0 3px rgba(243,156,18,0.30) !important;
+}
+[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] svg {
+  transition: transform .2s ease !important;
+}
+[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"]:hover svg {
+  transform: translateY(1px) scale(1.1) !important;
+}
 </style></head><body>
     <h1>Fee Estimate — {est_row['Estimate name']}</h1><p><strong>Client:</strong> {est_row['Client']} &nbsp;|&nbsp; <strong>Project:</strong> {est_row.get('Project name','—')} &nbsp;|&nbsp; <strong>Date:</strong> {est_row.get('Created','')}</p>
     <h2>Phase & Role Breakdown</h2><table><thead><tr><th style='padding:6px 8px;background:#2c3e50;color:white'>Phase</th>{rh}<th style='padding:6px 8px;background:#2c3e50;color:white'>Phase Total</th></tr>
@@ -728,60 +752,28 @@ def render_custom_fields_editor(existing_fields, key_prefix):
 def show_task_popup(proj_name):
     st.subheader(proj_name)
     proj_tasks = st.session_state.tasks[st.session_state.tasks["Project name"] == proj_name].copy()
-    member_names = st.session_state.members_df["Team member"].tolist()
-    if "Phase" not in proj_tasks.columns:
-        proj_tasks["Phase"] = ""
-    proj_tasks["Phase"] = proj_tasks["Phase"].fillna("").astype(str)
-    if proj_tasks.empty:
-        st.caption("No tasks yet. Add one below.")
-    else:
-        # Build an ordered list of phase groups: known STAGES first (only if they have tasks),
-        # then any other non-empty phases, then unphased tasks last.
-        present = [p for p in proj_tasks["Phase"].unique() if p.strip()]
-        ordered_phases = [s for s in STAGES if s in present] + [p for p in present if p not in STAGES]
-        has_unphased = (proj_tasks["Phase"].str.strip() == "").any()
-        groups = [(p, proj_tasks[proj_tasks["Phase"] == p]) for p in ordered_phases]
-        if has_unphased:
-            groups.append(("Unphased", proj_tasks[proj_tasks["Phase"].str.strip() == ""]))
-        for phase_name, phase_tasks in groups:
-            done = (phase_tasks["Status"] == "Completed").sum()
-            st.markdown(f"<div style='font-weight:700;font-size:15px;color:#2c3e50;border-bottom:2px solid #2c3e50;padding-bottom:4px;margin:14px 0 6px 0'>{phase_name} &nbsp;<span style='font-weight:400;font-size:12px;color:#888'>({done}/{len(phase_tasks)} done)</span></div>", unsafe_allow_html=True)
-            # --- Bulk assign for the whole stage ---
-            pkey = phase_name.replace(" ", "_")
-            bc1, bc2 = st.columns([4, 1])
-            with bc1:
-                bulk = st.multiselect("Assign everyone in this stage to", member_names, key=f"bulk_assign_{proj_name}_{pkey}", label_visibility="collapsed", placeholder=f"Assign all {len(phase_tasks)} task(s) in '{phase_name}' to…")
-            with bc2:
-                if st.button("Apply", key=f"bulk_apply_{proj_name}_{pkey}", use_container_width=True, disabled=not bulk):
-                    val = "; ".join(bulk)
-                    for _tid in phase_tasks["Task ID"].tolist():
-                        _ix = st.session_state.tasks[st.session_state.tasks["Task ID"] == _tid].index
-                        if len(_ix):
-                            st.session_state.tasks.at[_ix[0], "Assigned to"] = val
-                            st.session_state.tasks.at[_ix[0], "Last updated"] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
-                    save_tasks(st.session_state.tasks)
-                    st.success(f"Assigned {len(phase_tasks)} task(s) in '{phase_name}' to {val}."); st.rerun()
-            # --- Per-task rows (override individual assignments / status) ---
-            for _, task in phase_tasks.iterrows():
-                tid = task["Task ID"]
-                colour = TASK_STATUS_COLOURS.get(task["Status"], "#aaaaaa")
-                c1, c2, c3 = st.columns([3, 2, 2])
-                with c1:
-                    st.markdown(f"<span style='display:inline-block;width:9px;height:9px;border-radius:50%;background:{colour};margin-right:6px'></span>**{task['Task name']}**", unsafe_allow_html=True)
-                    if task.get("Notes"): st.caption(task["Notes"])
-                with c2:
-                    assigned = [m.strip() for m in str(task["Assigned to"]).split(";") if m.strip()]
-                    assigned = [m for m in assigned if m in member_names]
-                    new_assigned = st.multiselect("Assignee", member_names, default=assigned, key=f"popup_assign_{tid}", label_visibility="collapsed", placeholder="Assignee")
-                with c3:
-                    new_status = st.selectbox("Status", TASK_STATUSES, index=TASK_STATUSES.index(task["Status"]) if task["Status"] in TASK_STATUSES else 0, key=f"popup_status_{tid}", label_visibility="collapsed")
-                if new_assigned != assigned or new_status != task["Status"]:
-                    idx = st.session_state.tasks[st.session_state.tasks["Task ID"] == tid].index[0]
-                    st.session_state.tasks.at[idx, "Assigned to"] = "; ".join(new_assigned)
-                    st.session_state.tasks.at[idx, "Status"] = new_status
-                    st.session_state.tasks.at[idx, "Last updated"] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
-                    save_tasks(st.session_state.tasks); st.rerun()
-    st.divider()
+    for status in TASK_STATUSES:
+        status_tasks = proj_tasks[proj_tasks["Status"] == status]; colour = TASK_STATUS_COLOURS[status]
+        st.markdown(f"<div style='font-weight:700;font-size:14px;color:{colour};border-bottom:2px solid {colour};padding-bottom:4px;margin:12px 0 8px'>{status} ({len(status_tasks)})</div>", unsafe_allow_html=True)
+        if status_tasks.empty: st.caption("No tasks.")
+        for _, task in status_tasks.iterrows():
+            tid = task["Task ID"]
+            c1, c2, c3 = st.columns([3, 2, 2])
+            with c1:
+                st.markdown(f"**{task['Task name']}**")
+                if task.get("Notes"): st.caption(task["Notes"])
+            with c2:
+                assigned = [m.strip() for m in str(task["Assigned to"]).split(";") if m.strip()]
+                new_assigned = st.multiselect("Assignee", st.session_state.members_df["Team member"].tolist(), default=assigned, key=f"popup_assign_{tid}", label_visibility="collapsed")
+            with c3:
+                new_status = st.selectbox("Status", TASK_STATUSES, index=TASK_STATUSES.index(task["Status"]) if task["Status"] in TASK_STATUSES else 0, key=f"popup_status_{tid}", label_visibility="collapsed")
+            if new_assigned != assigned or new_status != task["Status"]:
+                idx = st.session_state.tasks[st.session_state.tasks["Task ID"] == tid].index[0]
+                st.session_state.tasks.at[idx, "Assigned to"] = "; ".join(new_assigned)
+                st.session_state.tasks.at[idx, "Status"] = new_status
+                st.session_state.tasks.at[idx, "Last updated"] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
+                save_tasks(st.session_state.tasks)
+            st.divider()
     st.markdown("### ＋ Add a task")
     with st.form(key=f"popup_new_task_{proj_name}"):
         nt_name = st.text_input("Task name"); nt_team = st.selectbox("Team", TASK_TEAMS)
@@ -795,96 +787,6 @@ def show_task_popup(proj_name):
                 st.session_state.tasks = add_or_update_task({"Task ID": "", "Project ID": pid, "Project name": proj_name, "Task name": nt_name, "Team": nt_team, "Assigned to": "; ".join(nt_assigned), "Status": nt_status, "Notes": nt_notes}, st.session_state.tasks)
                 save_tasks(st.session_state.tasks); st.rerun()
 
-
-
-# ===== Sheet / Drawing register (Documentation stage) =====
-SHEETS_FILE = Path(__file__).parent / "sheets.csv"
-SHEET_COLUMNS = ["Sheet ID", "Project ID", "Project name", "Sheet number", "Title", "Discipline", "Phase", "Assigned to", "Status", "Last updated"]
-SHEET_DISCIPLINES = ["Architectural", "Interior", "Structural", "Services", "Civil", "General"]
-
-
-def load_sheets():
-    return load_df(SHEETS_FILE, SHEET_COLUMNS)
-
-
-def save_sheets(df):
-    df.to_csv(SHEETS_FILE, index=False)
-
-
-@st.dialog("Drawing / Sheet Register", width="large")
-def show_sheet_popup(proj_name, proj_id):
-    member_names = st.session_state.members_df["Team member"].tolist()
-    sheets = load_sheets()
-    proj_sheets = sheets[sheets["Project name"] == proj_name].copy()
-    st.markdown(f"#### Documentation \u2014 {proj_name}")
-    st.caption("Allocate sheets and drawings to team members, grouped by project stage.")
-    if proj_sheets.empty:
-        st.info("No sheets registered yet. Add the first one below.")
-    else:
-        present = list(proj_sheets["Phase"].unique())
-        ordered_phases = [s for s in STAGES if s in present] + [p for p in present if p not in STAGES]
-        has_unphased = (proj_sheets["Phase"].str.strip() == "").any()
-        groups = [(p, proj_sheets[proj_sheets["Phase"] == p]) for p in ordered_phases if str(p).strip() != ""]
-        if has_unphased:
-            groups.append(("Unphased", proj_sheets[proj_sheets["Phase"].str.strip() == ""]))
-        for phase_name, phase_sheets in groups:
-            done = (phase_sheets["Status"] == "Completed").sum()
-            st.markdown(f"<div style='margin-top:14px;font-size:15px;color:#2c3e50;border-bottom:2px solid #2c3e50;padding-bottom:4px'><strong>{phase_name}</strong> &nbsp;<span style='font-weight:400;font-size:12px;color:#888'>({done}/{len(phase_sheets)} done)</span></div>", unsafe_allow_html=True)
-            pkey = phase_name.replace(" ", "_")
-            bc1, bc2 = st.columns([4, 1])
-            with bc1:
-                bulk = st.multiselect("Assign all sheets in this stage to", member_names, key=f"bulk_sheet_{proj_id}_{pkey}", label_visibility="collapsed", placeholder=f"Assign all {len(phase_sheets)} sheet(s) in '{phase_name}' to\u2026")
-            with bc2:
-                if st.button("Apply", key=f"bulk_sheet_apply_{proj_id}_{pkey}", use_container_width=True, disabled=not bulk):
-                    val = "; ".join(bulk)
-                    for _sid in phase_sheets["Sheet ID"].tolist():
-                        _ix = sheets[sheets["Sheet ID"] == _sid].index
-                        if len(_ix):
-                            sheets.at[_ix[0], "Assigned to"] = val
-                            sheets.at[_ix[0], "Last updated"] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
-                    save_sheets(sheets); st.rerun()
-            for _, sh in phase_sheets.iterrows():
-                sid = sh["Sheet ID"]
-                colour = TASK_STATUS_COLOURS.get(sh["Status"], "#aaaaaa")
-                c1, c2, c3 = st.columns([3, 3, 2])
-                with c1:
-                    num = (sh["Sheet number"] + " ") if str(sh["Sheet number"]).strip() else ""
-                    st.markdown(f"<span style='display:inline-block;width:9px;height:9px;border-radius:50%;background:{colour};margin-right:6px'></span>**{num}{sh['Title']}**", unsafe_allow_html=True)
-                    if str(sh.get("Discipline", "")).strip(): st.caption(sh["Discipline"])
-                with c2:
-                    assigned = [m.strip() for m in str(sh["Assigned to"]).split(";") if m.strip()]
-                    assigned = [m for m in assigned if m in member_names]
-                    new_assigned = st.multiselect("Assignee", member_names, default=assigned, key=f"sheet_assign_{sid}", label_visibility="collapsed", placeholder="Assignee")
-                with c3:
-                    new_status = st.selectbox("Status", TASK_STATUSES, index=TASK_STATUSES.index(sh["Status"]) if sh["Status"] in TASK_STATUSES else 0, key=f"sheet_status_{sid}", label_visibility="collapsed")
-                if new_assigned != assigned or new_status != sh["Status"]:
-                    idx = sheets[sheets["Sheet ID"] == sid].index[0]
-                    sheets.at[idx, "Assigned to"] = "; ".join(new_assigned)
-                    sheets.at[idx, "Status"] = new_status
-                    sheets.at[idx, "Last updated"] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
-                    save_sheets(sheets); st.rerun()
-    st.divider()
-    st.markdown("### + Add a sheet / drawing")
-    with st.form(key=f"new_sheet_{proj_id}"):
-        sc1, sc2 = st.columns([1, 2])
-        with sc1:
-            ns_num = st.text_input("Sheet number", placeholder="e.g. A-101")
-        with sc2:
-            ns_title = st.text_input("Title")
-        sc3, sc4, sc5 = st.columns(3)
-        with sc3:
-            ns_disc = st.selectbox("Discipline", SHEET_DISCIPLINES)
-        with sc4:
-            ns_phase = st.selectbox("Phase", STAGES)
-        with sc5:
-            ns_assign = st.multiselect("Assigned to", member_names)
-        if st.form_submit_button("Add sheet", use_container_width=True):
-            if not ns_title.strip():
-                st.warning("Please enter a sheet title.")
-            else:
-                new_row = {"Sheet ID": create_id(), "Project ID": proj_id, "Project name": proj_name, "Sheet number": ns_num.strip(), "Title": ns_title.strip(), "Discipline": ns_disc, "Phase": ns_phase, "Assigned to": "; ".join(ns_assign), "Status": "Not started", "Last updated": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")}
-                sheets = pd.concat([sheets, pd.DataFrame([new_row])], ignore_index=True)
-                save_sheets(sheets); st.rerun()
 
 @st.dialog("Log Hours", width="large")
 def show_log_hours_popup(proj_name, proj_id):
@@ -1102,7 +1004,7 @@ def build_traffic_light_cards(df):
                 f"<div style='display:flex;flex-wrap:wrap;gap:8px'>{dots}</div>{fee_bar}</div>")
         with cols[i % 3]:
             st.markdown(html, unsafe_allow_html=True)
-            b1, b2, b3, b4 = st.columns(4)
+            b1, b2, b3 = st.columns(3)
             with b1:
                 if st.button("▲ Close" if st.session_state.expanded_card == proj else "✏️ Stage", key=f"toggle_{proj}", use_container_width=True):
                     st.session_state.expanded_card = None if st.session_state.expanded_card == proj else proj; st.rerun()
@@ -1110,8 +1012,6 @@ def build_traffic_light_cards(df):
                 if st.button("📋 Tasks", key=f"tasks_{proj}", use_container_width=True): show_task_popup(proj)
             with b3:
                 if st.button("⏱ Hours", key=f"hours_{proj}", use_container_width=True): show_log_hours_popup(proj, proj_id)
-        with b4:
-            if st.button("📐 Sheets", key=f"sheets_{proj}", use_container_width=True): show_sheet_popup(proj, proj_id)
             if st.session_state.expanded_card == proj:
                 pidx = st.session_state.projects[st.session_state.projects["Project name"] == proj].index[0]
                 cur = st.session_state.projects.loc[pidx].to_dict()
@@ -1520,10 +1420,9 @@ elif page == "Projects":
         d1.markdown(f"**Start:** {prow.get('Start date') or '—'}")
         d2.markdown(f"**Target:** {prow.get('Target completion') or '—'}")
         d3.markdown(f"**Project manager:** {prow.get('Project manager') or '—'}")
-        a1, a2, a3 = st.columns(3)
+        a1, a2 = st.columns(2)
         if a1.button("📋 Tasks", use_container_width=True, key="pv_tasks"): show_task_popup(pv)
         if a2.button("⏱ Log / view hours", use_container_width=True, key="pv_hours"): show_log_hours_popup(pv, pid)
-        if a3.button("📐 Sheets / drawings", use_container_width=True, key="pv_sheets"): show_sheet_popup(pv, pid)
 
         st.markdown("---")
         cl, cr = st.columns(2)
@@ -2219,67 +2118,48 @@ elif page == "Fee Estimator":
             st.markdown("---")
             has_proj = bool(est.get("Project ID"))
             has_client = bool(est.get("Company ID"))
-        if has_proj or has_client:
-            _est_status = est.get("Status", "Draft") or "Draft"
+            if has_proj or has_client:
+                _est_status = est.get("Status", "Draft") or "Draft"
             _badge_col = "#2ecc71" if _est_status == "Approved" else "#f39c12"
             st.markdown(f"<div style='margin:6px 0'>Estimate status: <span style='background:{_badge_col};color:white;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600'>{_est_status}</span></div>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<div style='margin:6px 0'>Estimate status: <span style='background:{_badge_col};color:white;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600'>{_est_status}</span></div>", unsafe_allow_html=True)
-        if _est_status != "Approved":
-            st.caption("Set status to 'Approved' in Edit details to convert this estimate into a project.")
-        else:
-            _help = "Creates the project (if not linked), writes the fee, pushes all line items as tasks, then opens the project."
-            if st.button("✅ Approve → create project & push tasks", key=f"approve_convert_{act}", use_container_width=True, type="primary", help=_help):
-                _proj_id = est.get("Project ID", "")
-                _proj_name = est.get("Project name", "")
-                # 1. Create the project if none is linked yet
-                if not _proj_id:
-                    _proj_name = (est.get("Estimate name", "") or "New project").strip()
-                    _proj_id = create_id()
-                    st.session_state.projects = add_or_update_project({
-                        "Project ID": _proj_id, "Project name": _proj_name,
-                        "Client": est.get("Client", ""), "Stage": STAGES[0],
-                        "Status": "Active", "Budget": str(totals["total"]),
-                    }, st.session_state.projects)
-                    save_projects(st.session_state.projects)
-                    # link the new project back onto the estimate
-                    _eidx = st.session_state.estimates[st.session_state.estimates["Estimate ID"] == act].index[0]
-                    st.session_state.estimates.at[_eidx, "Project ID"] = _proj_id
-                    st.session_state.estimates.at[_eidx, "Project name"] = _proj_name
-                    save_estimates(st.session_state.estimates)
-                # 2. Write the fee onto the linked project
-                _pidx = st.session_state.projects[st.session_state.projects["Project ID"] == _proj_id].index
-                if len(_pidx):
-                    st.session_state.projects.at[_pidx[0], "Fee"] = str(totals["total"])
-                    save_projects(st.session_state.projects)
-                # 3. Push estimate line items as tasks (preserving existing assignments)
-                _elines = st.session_state.estimate_lines[(st.session_state.estimate_lines["Estimate ID"] == act) & (st.session_state.estimate_lines["Active"].astype(str).str.lower() != "false")]
-                _pushed = 0
-                for _, _ln in _elines.iterrows():
-                    _lid = _ln.get("Line ID", "")
-                    _tname = (_ln.get("Task", "") or _ln.get("Role", "") or "Sub-task").strip()
-                    _existing = st.session_state.tasks[st.session_state.tasks["Source line ID"].astype(str) == str(_lid)] if "Source line ID" in st.session_state.tasks.columns else st.session_state.tasks.iloc[0:0]
-                    _tid = _existing.iloc[0]["Task ID"] if not _existing.empty else ""
-                    _prev_assigned = _existing.iloc[0]["Assigned to"] if not _existing.empty else ""
-                    _prev_status = _existing.iloc[0]["Status"] if not _existing.empty else "Not started"
-                    st.session_state.tasks = add_or_update_task({"Task ID": _tid, "Project ID": _proj_id, "Project name": _proj_name, "Task name": _tname, "Team": "Design", "Assigned to": _prev_assigned, "Status": _prev_status if _prev_status else "Not started", "Notes": f"From estimate '{est.get('Estimate name','')}'", "Budget hours": str(parse_budget(_ln.get("Hours", 0))), "Source line ID": str(_lid), "Phase": _ln.get("Phase", ""), "Role": _ln.get("Role", "")}, st.session_state.tasks)
-                    _pushed += 1
-                save_tasks(st.session_state.tasks)
-                # 4. Update the linked client note
-                if has_client:
-                    cidx = st.session_state.companies[st.session_state.companies["Company ID"].astype(str) == str(est["Company ID"])].index
-                    if not cidx.empty:
-                        cur_notes = str(st.session_state.companies.at[cidx[0], "Notes"] or "")
-                        tag = f"[Fee Estimate '{est.get('Estimate name','')}']:"
-                        kept = [l for l in cur_notes.splitlines() if not l.strip().startswith(tag)]
-                        kept.append(f"{tag} {totals['total']:,.2f} (as of {pd.Timestamp.now().strftime('%Y-%m-%d')})")
-                        st.session_state.companies.at[cidx[0], "Notes"] = "\n".join([l for l in kept if l.strip()])
-                        save_companies(st.session_state.companies)
-                # 5. Navigate to the project
-                st.success(f"Project '{_proj_name}' ready — fee {totals['total']:,.2f} set, {_pushed} task(s) synced. Opening project…")
-                st.session_state.selected_project = _proj_name
-                st.session_state.nav_target = "Projects"
-                st.rerun()
+            if _est_status != "Approved":
+                st.caption("Set status to 'Approved' in Edit details to push sub-tasks into resourcing.")
+            if _est_status == "Approved" and has_proj:
+                if st.button("✅ Approve & push sub-tasks to resourcing", key=f"push_tasks_{act}", use_container_width=True):
+                    _proj_id = est.get("Project ID", ""); _proj_name = est.get("Project name", "")
+                    _elines = st.session_state.estimate_lines[(st.session_state.estimate_lines["Estimate ID"] == act) & (st.session_state.estimate_lines["Active"].astype(str).str.lower() != "false")]
+                    _pushed = 0
+                    for _, _ln in _elines.iterrows():
+                        _lid = _ln.get("Line ID", "")
+                        _tname = (_ln.get("Task", "") or _ln.get("Role", "") or "Sub-task").strip()
+                        _existing = st.session_state.tasks[st.session_state.tasks["Source line ID"].astype(str) == str(_lid)] if "Source line ID" in st.session_state.tasks.columns else st.session_state.tasks.iloc[0:0]
+                        _tid = _existing.iloc[0]["Task ID"] if not _existing.empty else ""
+                        _prev_assigned = _existing.iloc[0]["Assigned to"] if not _existing.empty else ""
+                        _prev_status = _existing.iloc[0]["Status"] if not _existing.empty else "Not started"
+                        st.session_state.tasks = add_or_update_task({"Task ID": _tid, "Project ID": _proj_id, "Project name": _proj_name, "Task name": _tname, "Team": "Design", "Assigned to": _prev_assigned, "Status": _prev_status if _prev_status else "Not started", "Notes": f"From estimate '{est.get('Estimate name','')}'", "Budget hours": str(parse_budget(_ln.get("Hours", 0))), "Source line ID": str(_lid), "Phase": _ln.get("Phase", ""), "Role": _ln.get("Role", "")}, st.session_state.tasks)
+                        _pushed += 1
+                    save_tasks(st.session_state.tasks)
+                    st.success(f"Pushed {_pushed} sub-task(s) to the Task Tracker. Existing assignments were preserved.")
+            if st.button("📤 Push total fee to linked project & client", use_container_width=True):
+                    fee_str = str(totals["total"]); pushed = []
+                    if has_proj:
+                        pidx2 = st.session_state.projects[st.session_state.projects["Project ID"] == est["Project ID"]].index
+                        if not pidx2.empty:
+                            st.session_state.projects.at[pidx2[0], "Fee"] = fee_str; save_projects(st.session_state.projects); pushed.append(f"project '{est.get('Project name','')}'")
+                    if has_client:
+                        cidx = st.session_state.companies[st.session_state.companies["Company ID"].astype(str) == str(est["Company ID"])].index
+                        if not cidx.empty:
+                            import re as _re
+                            cur_notes = str(st.session_state.companies.at[cidx[0], "Notes"] or "")
+                            tag = f"[Fee] Estimate '{est.get('Estimate name','')}':"
+                            kept = [l for l in cur_notes.splitlines() if not l.strip().startswith(f"[Fee] Estimate '{est.get('Estimate name','')}':")]
+                            kept.append(f"{tag} ${totals['total']:,.2f} (as of {pd.Timestamp.now().strftime('%Y-%m-%d')})")
+                            st.session_state.companies.at[cidx[0], "Notes"] = "\n".join([l for l in kept if l.strip()])
+                            save_companies(st.session_state.companies); pushed.append(f"client '{est.get('Client','')}'")
+                    if pushed:
+                        st.success(f"Fee of ${totals['total']:,.2f} pushed to " + " and ".join(pushed) + ".")
+                    else:
+                        st.warning("No linked project or client record found to push to.")
             est_fresh = st.session_state.estimates[st.session_state.estimates["Estimate ID"] == act].iloc[0].to_dict()
             totals_fresh = estimate_totals(act, st.session_state.estimate_lines, st.session_state.estimate_disb, est_fresh.get("Margin %", "0"), role_rates)
             pdf_html = generate_pdf_html(est_fresh, st.session_state.estimate_lines, st.session_state.estimate_disb, totals_fresh, role_rates)
